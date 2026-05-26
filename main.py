@@ -254,15 +254,17 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
         
-        # 🛡️ [치명적 버그 수정] 와일드카드 정규식 강제 탈취 알고리즘
-        # '매월' 단어와 '금액 숫자' 사이에 HWP 특유의 유령 문자나 특수기호가 난입하더라도, 
-        # 단어가 출현한 뒤 처음으로 매칭되는 6~9자리의 연속된 금액 숫자를 무조건 가로챕니다.
+        # 🛡️ [탐욕 버그 수정] 한 줄 제한(Line-Bounded) 정규식 가드 레일 알고리즘
+        # 단어가 출현한 '동일한 줄 속'에서만 금액 숫자를 찾도록 제한하여 줄바꿈을 넘나들며 총액을 훔쳐오던 현상을 완벽히 차단합니다.
         if 'extracted_text' in locals() and extracted_text:
-            match = re.search(r'(?:매월|월\s*급여|월\s*보수).*?([0-9,]{6,9})', extracted_text)
-            if match:
-                regex_salary = int(match.group(1).replace(',', ''))
-                if regex_salary > 0:
-                    salary_val = regex_salary  # AI의 환각 오답을 정규식 기반 정답으로 확실하게 압도
+            for line in extracted_text.split('\n'):
+                # [^0-9\n]{0,30} -> 개행문자나 숫자가 아닌 텍스트(₩, 공백 등)가 같은 줄에서 최대 30자까지만 허용
+                match = re.search(r'(?:매월|월\s*급여|월\s*보수)[^0-9\n]{0,30}([0-9,]{6,9})', line)
+                if match:
+                    regex_salary = int(match.group(1).replace(',', ''))
+                    if regex_salary > 0:
+                        salary_val = regex_salary  # 완벽히 매칭된 동일 선상의 정답으로만 치환
+                        break # 매칭 성공 시 즉시 라인 탐색 종료
         
         conn = sqlite3.connect("hospital_ai.db")
         cursor = conn.cursor()
