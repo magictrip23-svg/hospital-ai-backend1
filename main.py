@@ -202,12 +202,13 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
     filename = contract_file.filename
     ext = filename.lower().split('.')[-1]
     
-    # 📑 한국식 다양한 급여 표기 및 계약서 내 수치 모순 방지 지침 고도화
+    # 📑 [닻 내림 효과 원천 차단] 특정 숫자 예시를 삭제하고 본문 데이터 추출 규칙만 조밀하게 명시
     salary_instruction = (
-        "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '만원' 등의 문자열이 포함되지 않은 순수 정수 숫자(Integer)여야 한다.\n"
+        "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '₩' 등의 텍스트가 포함되지 않은 순수 정수 숫자(Integer) 형식이어야 한다.\n"
         "중요 지침: 계약서 내부의 '전체 계약 기간'과 '총 임금 액수'가 수학적으로 상충하거나 모순되더라도, "
-        "총액을 기간으로 나누는 계산을 절대 하지 말고, 오직 '매월', '월령별', '분할(매월 ₩X)' 문맥 뒤에 명시된 "
-        "실제 매달 실지급액 숫자를 최우선으로 간주하여 'salary' 값으로 추출해라. (예: 매월 ₩2,800,000 이면 2800000 추출)"
+        "절대 총액을 기간으로 나누는 임의 계산을 수행하지 마라. 오직 본문 텍스트 내에서 '매월', '월 보수', '분할(매월 ₩X)' "
+        "문맥 바로 뒤에 명시되어 있는 실제 매달 실지급액 숫자를 있는 그대로 찾아내어 'salary' 값으로 정확히 추출해라.\n"
+        "경고: 프롬프트 지침이나 타 과제 샘플의 숫자를 절대로 참조하지 말고, 오직 업로드된 당해 파일 본문에 기재된 리얼 숫자만 파싱해라."
     )
     
     try:
@@ -254,9 +255,8 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
         
-        # 🛡️ 2차 알고리즘 최종 병기: AI가 문장의 모순에 속아 0을 반환했을 경우, 파이썬이 정규식으로 직접 구출
+        # 🛡️ 2차 안전장치: 파이썬 내부 정규식을 고형화하여 AI가 매핑을 놓치더라도 텍스트 본문에서 강제 재추출
         if salary_val == 0 and 'extracted_text' in locals() and extracted_text:
-            # 텍스트 내부에서 '매월' 혹은 '매월₩' 뒤에 나오는 숫자 패턴을 강제로 추적해 추출합니다.
             match = re.search(r'매월\s*₩?\s*([0-9,]+)', extracted_text)
             if match:
                 salary_val = int(match.group(1).replace(',', ''))
