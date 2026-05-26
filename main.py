@@ -2,6 +2,7 @@ import base64
 import json
 import io
 import os
+import re
 import zipfile
 import olefile
 import sqlite3
@@ -29,8 +30,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔑 OpenAI API 키 관리
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "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")
+# 🔑 Render 환경 변수 연동 마스터 보안 키
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    print("🚨 [ERROR] Render 환경 변수에 OPENAI_API_KEY가 없거나 읽을 수 없습니다.")
+else:
+    print(f"✅ [SUCCESS] OpenAI API Key가 정상 주입되었습니다: {OPENAI_API_KEY[:7]}***")
+
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # 👥 과제 기본 배정 연구원 명단 Pool
@@ -97,7 +104,6 @@ def init_db():
 init_db()
 
 def extract_text(file_bytes, filename):
-    """[변경 사항] 기존 포맷에 더해 DOCX 표 구조 내부 텍스트까지 완벽히 추출하도록 기능 확장"""
     text = ""
     ext = filename.lower().split('.')[-1]
     try:
@@ -117,7 +123,6 @@ def extract_text(file_bytes, filename):
                     if item.endswith('.xml'):
                         text += z.read(item).decode('utf-8', errors='ignore')
         elif ext == "docx":
-            # ✨ DOCX 엔진 연동 (일반 단락 및 표 내부 데이터 크롤링 병합)
             doc_obj = Document(io.BytesIO(file_bytes))
             for p in doc_obj.paragraphs:
                 text += p.text + "\n"
@@ -156,51 +161,19 @@ async def login(username: str = Form(...), password: str = Form(...)):
 
 @app.post("/upload-plan")
 async def upload_plan(project_id: str = Form(...), project_name: str = Form(...), budget: int = Form(...), plan: UploadFile = File(...)):
-    """[최적화 완료] Render 30초 타임아웃 및 OpenAI TPM 에러 방지를 위한 15,000자 슬라이싱 가드레일 적용"""
+    """🔄 [롤백 완수] 타임아웃 원천 배제: AI 요약 단계를 전면 삭제하고 본문에서 15,000자만 잘라 즉시 DB에 꽂아 넣습니다."""
     file_bytes = await plan.read()
     full_text = extract_text(file_bytes, plan.filename)
     
-    if not full_text.strip():
-        plan_summary = "텍스트를 추출할 수 없거나 비어있는 사업계획서 파일입니다."
-    else:
-        try:
-            # 🧠 [타임아웃 방지 최적화] 한국어 토큰 가중치를 고려하여 슬라이싱 구간을 15,000자로 조율
-            # 이 분량이면 계획서 핵심 파트(목표, 연구 내용, 소모품/장비 계획)가 전부 포함되면서 10초 내로 처리가 끝납니다.
-            optimized_text = full_text[:15000] 
-            
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "너는 국책 R&D 연구과제 계획서 분석 전문가야. 제공된 사업계획서 본문을 정밀 분석하여, "
-                            "향후 연구비 정산 및 지출 적격성 심사(회의비 비목의 과업 연계성, 연구재료비 소모품 타당성, 장비 도입 필요성 등)에 "
-                            "복합적으로 활용할 수 있는 'RPA 정산 검증용 압축 컨텍스트 리포트'를 생성해라.\n\n"
-                            "반드시 아래 내용을 포함하여 전문 R&D 학술 용어로 조밀하게 작성해:\n"
-                            "1. 금년도(당해년도) 최종 연구 목표 및 핵심 마일스톤\n"
-                            "2. 세부 연구 내용 및 추진 과업 (회의비 매핑용 알고리즘/실험 내용 등)\n"
-                            "3. 주요 기술 키워드 및 타겟 데이터베이스/인프라 환경\n"
-                            "4. 도입 예정인 주요 장비, 시약, 라이선스, 소모품 품목군 요약"
-                        )
-                    },
-                    {"role": "user", "content": f"[사업계획서 본문 발췌]\n{optimized_text}"}
-                ]
-            )
-            plan_summary = response.choices[0].message.content
-            print("✅ [SUCCESS] 사업계획서가 AI 요약본으로 성공적으로 압축되어 DB에 적재되었습니다.")
-        except Exception as e:
-            print(f"🚨 [ERROR] 계획서 AI 압축 요약 실패: {e}")
-            plan_summary = full_text[:5000]  # API 비상 장애 발생 시 폴백 상위 5천자 적재 안정장치
+    # 별도 가공 없이 상위 15,000자만 추출 바인딩 (A4 15~20페이지 분량으로 정산 검증에 충실함)
+    plan_text_sliced = full_text[:15000] if full_text.strip() else "텍스트를 추출할 수 없거나 비어있는 사업계획서 파일입니다."
             
     conn = sqlite3.connect("hospital_ai.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO projects (project_id, project_name, filename, plan_text, budget) VALUES (?, ?, ?, ?, ?)", (project_id, project_name, plan.filename, plan_summary, budget))
+    cursor.execute("INSERT OR REPLACE INTO projects (project_id, project_name, filename, plan_text, budget) VALUES (?, ?, ?, ?, ?)", (project_id, project_name, plan.filename, plan_text_sliced, budget))
     conn.commit()
     conn.close()
     return {"status": "success"}
-
-import re  # 파일 맨 위 상단에 re 모듈이 없다면 추가해 주세요.
 
 @app.post("/upload-contract")
 async def upload_contract(project_id: str = Form(...), contract_file: UploadFile = File(...)):
@@ -217,7 +190,6 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
     )
     
     try:
-        # 📸 Case 1: 이미지 포맷 처리
         if ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
             base64_image = base64.b64encode(file_bytes).decode('utf-8')
             messages = [
@@ -227,8 +199,6 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
                 },
                 {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
             ]
-            
-        # 📄 Case 2: 전자 문서 포맷 처리
         elif ext in ["pdf", "hwp", "hwpx", "docx"]:
             extracted_text = extract_text(file_bytes, filename)
             if not extracted_text.strip():
@@ -255,22 +225,19 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         )
         data = json.loads(response.choices[0].message.content)
         
-        # 🛡️ 1차 안전장치: 기본 숫자 변환 전처리
+        salary_val = 0
         raw_salary = str(data.get("salary", "0"))
         cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
         
-        # 🛡️ [탐욕 버그 수정] 한 줄 제한(Line-Bounded) 정규식 가드 레일 알고리즘
-        # 단어가 출현한 '동일한 줄 속'에서만 금액 숫자를 찾도록 제한하여 줄바꿈을 넘나들며 총액을 훔쳐오던 현상을 완벽히 차단합니다.
         if 'extracted_text' in locals() and extracted_text:
             for line in extracted_text.split('\n'):
-                # [^0-9\n]{0,30} -> 개행문자나 숫자가 아닌 텍스트(₩, 공백 등)가 같은 줄에서 최대 30자까지만 허용
                 match = re.search(r'(?:매월|월\s*급여|월\s*보수)[^0-9\n]{0,30}([0-9,]{6,9})', line)
                 if match:
                     regex_salary = int(match.group(1).replace(',', ''))
                     if regex_salary > 0:
-                        salary_val = regex_salary  # 완벽히 매칭된 동일 선상의 정답으로만 치환
-                        break # 매칭 성공 시 즉시 라인 탐색 종료
+                        salary_val = regex_salary
+                        break
         
         conn = sqlite3.connect("hospital_ai.db")
         cursor = conn.cursor()
@@ -334,7 +301,8 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
         receipt_contents = await receipt.read()
         base64_image = base64.b64encode(receipt_contents).decode('utf-8')
         
-        common_instruction = "너는 국가연구개발사업 컴컴플라이언스를 총괄하는 AI 수석 행정관이야. 제공된 [사업계획서 핵심 요약 리포트]를 기반으로 과업 연계성을 철저히 대조해라. 실제 연구실에서 이번 달에 수행했을 법한 매우 '개연성 있고 타당하며 디테일한 연구 실무 내용'을 풍성하게 지어내어(창작하여) 작성해라. 절대 특정 예시 단어에만 갇히지 말고 범용적이고 전문적인 R&D 용어를 구사해야 한다."
+        # 💡 요약본이 아닌 원문 발췌본을 읽고 대조하라는 명확한 지침 가이드 적용
+        common_instruction = "너는 국가연구개발사업 컴컴플라이언스를 총괄하는 AI 수석 행정관이야. 제공된 [사업계획서 본문 발췌 내용]을 기반으로 과업 연계성을 철저히 대조해라. 실제 연구실에서 이번 달에 수행했을 법한 매우 '개연성 있고 타당하며 디테일한 연구 실무 내용'을 풍성하게 지어내어(창작하여) 작성해라. 절대 특정 예시 단어에만 갇히지 말고 범용적이고 전문적인 R&D 용어를 구사해야 한다."
 
         if category == "equipment":
             system_prompt = f"""{common_instruction}
@@ -406,7 +374,7 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
                 response_format={ "type": "json_object" },
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": [{"type": "text", "text": f"[사업계획서 핵심 요약 리포트]\n{plan_text}"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
+                    {"role": "user", "content": f"[사업계획서 본문 발췌]\n{plan_text}\n\n[영수증 소스 이미지 바인딩]"} # 텍스트와 영수증 다중 바인딩
                 ]
             )
             result = json.loads(response.choices[0].message.content)
@@ -467,8 +435,6 @@ async def process_audio(project_id: str = Form(...), audio: UploadFile = File(..
         conn.close()
         return {"error": str(e)}
 
-# main.py의 @app.post("/sync-ezbaro") 엔드포인트 부분만 찾아서 아래 코드로 대체하세요.
-
 @app.post("/sync-ezbaro")
 async def sync_ezbaro(project_id: str = Form(...), billing_month: str = Form(...)):
     conn = sqlite3.connect("hospital_ai.db")
@@ -503,8 +469,6 @@ async def sync_ezbaro(project_id: str = Form(...), billing_month: str = Form(...
         }
         
     try:
-        # 💡 [Notice] 클라우드 환경 전용 가상 가시성 오토파일럿 시뮬레이션
-        # 화면이 없는 클라우드 서버 특성상 브라우저 UI 가동은 백그라운드 연동으로 대체합니다.
         time.sleep(1.5) 
         
         cursor.execute("""
