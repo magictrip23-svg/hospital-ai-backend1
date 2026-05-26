@@ -254,15 +254,15 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
         
-        # 🛡️ [버그 수정] 정규식 최우선 순위 강제 오버라이드 알고리즘
-        # AI가 본문의 계약기간 모순에 속아 300만 원 같은 엉뚱한 환각 값을 리턴하더라도,
-        # 텍스트 문서 내에 '매월/월급여' 패턴이 명확히 존재한다면 파이썬 정규식이 이를 낚아채어 무조건 정답으로 덮어씁니다.
+        # 🛡️ [치명적 버그 수정] 와일드카드 정규식 강제 탈취 알고리즘
+        # '매월' 단어와 '금액 숫자' 사이에 HWP 특유의 유령 문자나 특수기호가 난입하더라도, 
+        # 단어가 출현한 뒤 처음으로 매칭되는 6~9자리의 연속된 금액 숫자를 무조건 가로챕니다.
         if 'extracted_text' in locals() and extracted_text:
-            match = re.search(r'(?:매월|월\s*급여|월\s*보수)\s*₩?\s*([0-9,]+)', extracted_text)
+            match = re.search(r'(?:매월|월\s*급여|월\s*보수).*?([0-9,]{6,9})', extracted_text)
             if match:
                 regex_salary = int(match.group(1).replace(',', ''))
                 if regex_salary > 0:
-                    salary_val = regex_salary # AI의 환각 오답을 정규식 정답(2,800,000)으로 강제 치환
+                    salary_val = regex_salary  # AI의 환각 오답을 정규식 기반 정답으로 확실하게 압도
         
         conn = sqlite3.connect("hospital_ai.db")
         cursor = conn.cursor()
