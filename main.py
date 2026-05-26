@@ -196,24 +196,32 @@ async def upload_plan(project_id: str = Form(...), project_name: str = Form(...)
 
 @app.post("/upload-contract")
 async def upload_contract(project_id: str = Form(...), contract_file: UploadFile = File(...)):
-    """[변경 사항] 하이브리드 파이프라인 연동: 이미지 포맷과 고형 문서 포맷을 교차 판정 분기 처리"""
     file_bytes = await contract_file.read()
     filename = contract_file.filename
     ext = filename.lower().split('.')[-1]
     
+    # 📑 [프롬프트 고도화] 한국식 다양한 급여 표기법을 순수 정수 숫자로 변환하는 마스터 지침
+    salary_instruction = (
+        "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '만원' 등의 문자열이 포함되지 않은 순수 정수 숫자(Integer)여야 한다.\n"
+        "1. 만약 계약서에 월 급여가 '삼백만원'처럼 한글로 기재되어 있다면 숫자로 변환해라 (예: 3000000)\n"
+        "2. 만약 월급이 아닌 '연봉(총액)'으로 기재되어 있다면 반드시 이를 12로 나눈 뒤 월급여로 환산하여 정수로 반환해라.\n"
+        "3. 금액 표기에 참여율(예: 참여율 80% 기준 지급 등)이 얽혀있다면, 해당 참여율이 반영되어 최종적으로 실지급되는 월 급여액을 계산해라.\n"
+        "4. 금액을 도저히 판독할 수 없는 경우에만 0을 반환해라."
+    )
+    
     try:
-        # 📸 Case 1: 순수 이미지 파일인 경우 (기존 멀티모달 Vision 알고리즘 작동)
+        # 📸 Case 1: 이미지 포맷 처리
         if ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
             base64_image = base64.b64encode(file_bytes).decode('utf-8')
             messages = [
                 {
                     "role": "system",
-                    "content": "너는 인사노무 고용계약서 분석 전문가야. 계약서 이미지에서 아래 정보를 파싱해 JSON으로 줘. 규격: {\"name\": \"연구원이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}"
+                    "content": f"너는 인사노무 고용계약서 분석 전문가야. 계약서 이미지에서 아래 정보를 파싱해 JSON으로 줘. 규격: {{\"name\": \"연구원이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"
                 },
                 {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
             ]
             
-        # 📄 Case 2: 전자 문서 파일인 경우 (엔진 기반 텍스트 크롤링 후 지능형 파싱 작동)
+        # 📄 Case 2: 전자 문서 포맷 처리
         elif ext in ["pdf", "hwp", "hwpx", "docx"]:
             extracted_text = extract_text(file_bytes, filename)
             if not extracted_text.strip():
@@ -224,17 +232,15 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
                     "role": "system",
                     "content": (
                         "너는 국책기관 노무 감사용 고용계약서 텍스트 가공 전문가야. 제공된 계약서 본문 원천 데이터에서 "
-                        "실제 계약된 참여연구원의 핵심 노무 데이터 정보 4가지를 반드시 도출하여 JSON 구조로 출력해라. "
-                        "규격 사양: {\"name\": \"연구원이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}\n"
-                        "주의: salary 키는 원 단위의 '순수 정수 숫자' 형식이어야 하며, 날짜는 하이픈 규격을 엄수해야 한다."
+                        "실제 계약된 참여연구원의 핵심 노무 데이터 정보 4가지를 반드시 도출하여 JSON 구조로 출력해라.\n"
+                        f"규격 사양: {{\"name\": \"연구원이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"
                     )
                 },
                 {"role": "user", "content": f"[고용계약서 원천 텍스트 자산]\n{extracted_text}"}
             ]
         else:
-            return {"status": "error", "message": "허용되지 않는 확장자 포맷입니다. (PDF, HWP, HWPX, DOCX 및 이미지 규격 전용)"}
+            return {"status": "error", "message": "허용되지 않는 확장자 포맷입니다."}
 
-        # AI 호출 통합 실행
         response = client.chat.completions.create(
             model="gpt-4o",
             response_format={ "type": "json_object" },
@@ -242,15 +248,21 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         )
         data = json.loads(response.choices[0].message.content)
         
+        # 🛡️ [백엔드 안전장치] AI가 간혹 문자열("3,000,000")로 반환하더라도 강제로 문자를 전처리하여 숫자로 변환
+        raw_salary = str(data.get("salary", "0"))
+        cleaned_salary = "".join(filter(str.isdigit, raw_salary)) # 숫자만 필터링해서 추출
+        salary_val = int(cleaned_salary) if cleaned_salary else 0
+        
         conn = sqlite3.connect("hospital_ai.db")
         cursor = conn.cursor()
         cursor.execute("DELETE FROM contracts WHERE project_id = ? AND researcher_name = ?", (project_id, data.get("name")))
         cursor.execute("""
             INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date)
             VALUES (?, ?, ?, ?, ?)
-        """, (project_id, data.get("name"), data.get("salary"), data.get("start_date"), data.get("end_date")))
+        """, (project_id, data.get("name"), salary_val, data.get("start_date"), data.get("end_date")))
         conn.commit()
         conn.close()
+        
         return {"status": "success", "data": data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
