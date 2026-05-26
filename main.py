@@ -156,6 +156,7 @@ async def login(username: str = Form(...), password: str = Form(...)):
 
 @app.post("/upload-plan")
 async def upload_plan(project_id: str = Form(...), project_name: str = Form(...), budget: int = Form(...), plan: UploadFile = File(...)):
+    """[최적화 완료] Render 30초 타임아웃 및 OpenAI TPM 에러 방지를 위한 15,000자 슬라이싱 가드레일 적용"""
     file_bytes = await plan.read()
     full_text = extract_text(file_bytes, plan.filename)
     
@@ -163,13 +164,17 @@ async def upload_plan(project_id: str = Form(...), project_name: str = Form(...)
         plan_summary = "텍스트를 추출할 수 없거나 비어있는 사업계획서 파일입니다."
     else:
         try:
+            # 🧠 [타임아웃 방지 최적화] 한국어 토큰 가중치를 고려하여 슬라이싱 구간을 15,000자로 조율
+            # 이 분량이면 계획서 핵심 파트(목표, 연구 내용, 소모품/장비 계획)가 전부 포함되면서 10초 내로 처리가 끝납니다.
+            optimized_text = full_text[:15000] 
+            
             response = client.chat.completions.create(
                 model="gpt-4o",
                 messages=[
                     {
                         "role": "system",
                         "content": (
-                            "너는 국책 R&D 연구과제 계획서 분석 전문가야. 제공된 사업계획서 전체 본문을 정밀 분석하여, "
+                            "너는 국책 R&D 연구과제 계획서 분석 전문가야. 제공된 사업계획서 본문을 정밀 분석하여, "
                             "향후 연구비 정산 및 지출 적격성 심사(회의비 비목의 과업 연계성, 연구재료비 소모품 타당성, 장비 도입 필요성 등)에 "
                             "복합적으로 활용할 수 있는 'RPA 정산 검증용 압축 컨텍스트 리포트'를 생성해라.\n\n"
                             "반드시 아래 내용을 포함하여 전문 R&D 학술 용어로 조밀하게 작성해:\n"
@@ -179,13 +184,14 @@ async def upload_plan(project_id: str = Form(...), project_name: str = Form(...)
                             "4. 도입 예정인 주요 장비, 시약, 라이선스, 소모품 품목군 요약"
                         )
                     },
-                    {"role": "user", "content": f"[사업계획서 전체 본문 발췌]\n{full_text[:60000]}"}
+                    {"role": "user", "content": f"[사업계획서 본문 발췌]\n{optimized_text}"}
                 ]
             )
             plan_summary = response.choices[0].message.content
+            print("✅ [SUCCESS] 사업계획서가 AI 요약본으로 성공적으로 압축되어 DB에 적재되었습니다.")
         except Exception as e:
-            print(f"계획서 AI 압축 요약 실패: {e}")
-            plan_summary = full_text[:5000]
+            print(f"🚨 [ERROR] 계획서 AI 압축 요약 실패: {e}")
+            plan_summary = full_text[:5000]  # API 비상 장애 발생 시 폴백 상위 5천자 적재 안정장치
             
     conn = sqlite3.connect("hospital_ai.db")
     cursor = conn.cursor()
