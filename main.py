@@ -202,7 +202,6 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
     filename = contract_file.filename
     ext = filename.lower().split('.')[-1]
     
-    # 📑 [닻 내림 효과 원천 차단] 특정 숫자 예시를 삭제하고 본문 데이터 추출 규칙만 조밀하게 명시
     salary_instruction = (
         "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '₩' 등의 텍스트가 포함되지 않은 순수 정수 숫자(Integer) 형식이어야 한다.\n"
         "중요 지침: 계약서 내부의 '전체 계약 기간'과 '총 임금 액수'가 수학적으로 상충하거나 모순되더라도, "
@@ -255,11 +254,15 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
         
-        # 🛡️ 2차 안전장치: 파이썬 내부 정규식을 고형화하여 AI가 매핑을 놓치더라도 텍스트 본문에서 강제 재추출
-        if salary_val == 0 and 'extracted_text' in locals() and extracted_text:
-            match = re.search(r'매월\s*₩?\s*([0-9,]+)', extracted_text)
+        # 🛡️ [버그 수정] 정규식 최우선 순위 강제 오버라이드 알고리즘
+        # AI가 본문의 계약기간 모순에 속아 300만 원 같은 엉뚱한 환각 값을 리턴하더라도,
+        # 텍스트 문서 내에 '매월/월급여' 패턴이 명확히 존재한다면 파이썬 정규식이 이를 낚아채어 무조건 정답으로 덮어씁니다.
+        if 'extracted_text' in locals() and extracted_text:
+            match = re.search(r'(?:매월|월\s*급여|월\s*보수)\s*₩?\s*([0-9,]+)', extracted_text)
             if match:
-                salary_val = int(match.group(1).replace(',', ''))
+                regex_salary = int(match.group(1).replace(',', ''))
+                if regex_salary > 0:
+                    salary_val = regex_salary # AI의 환각 오답을 정규식 정답(2,800,000)으로 강제 치환
         
         conn = sqlite3.connect("hospital_ai.db")
         cursor = conn.cursor()
