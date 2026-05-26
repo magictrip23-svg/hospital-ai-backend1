@@ -194,19 +194,20 @@ async def upload_plan(project_id: str = Form(...), project_name: str = Form(...)
     conn.close()
     return {"status": "success"}
 
+import re  # 파일 맨 위 상단에 re 모듈이 없다면 추가해 주세요.
+
 @app.post("/upload-contract")
 async def upload_contract(project_id: str = Form(...), contract_file: UploadFile = File(...)):
     file_bytes = await contract_file.read()
     filename = contract_file.filename
     ext = filename.lower().split('.')[-1]
     
-    # 📑 [프롬프트 고도화] 한국식 다양한 급여 표기법을 순수 정수 숫자로 변환하는 마스터 지침
+    # 📑 한국식 다양한 급여 표기 및 계약서 내 수치 모순 방지 지침 고도화
     salary_instruction = (
         "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '만원' 등의 문자열이 포함되지 않은 순수 정수 숫자(Integer)여야 한다.\n"
-        "1. 만약 계약서에 월 급여가 '삼백만원'처럼 한글로 기재되어 있다면 숫자로 변환해라 (예: 3000000)\n"
-        "2. 만약 월급이 아닌 '연봉(총액)'으로 기재되어 있다면 반드시 이를 12로 나눈 뒤 월급여로 환산하여 정수로 반환해라.\n"
-        "3. 금액 표기에 참여율(예: 참여율 80% 기준 지급 등)이 얽혀있다면, 해당 참여율이 반영되어 최종적으로 실지급되는 월 급여액을 계산해라.\n"
-        "4. 금액을 도저히 판독할 수 없는 경우에만 0을 반환해라."
+        "중요 지침: 계약서 내부의 '전체 계약 기간'과 '총 임금 액수'가 수학적으로 상충하거나 모순되더라도, "
+        "총액을 기간으로 나누는 계산을 절대 하지 말고, 오직 '매월', '월령별', '분할(매월 ₩X)' 문맥 뒤에 명시된 "
+        "실제 매달 실지급액 숫자를 최우선으로 간주하여 'salary' 값으로 추출해라. (예: 매월 ₩2,800,000 이면 2800000 추출)"
     )
     
     try:
@@ -248,10 +249,17 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         )
         data = json.loads(response.choices[0].message.content)
         
-        # 🛡️ [백엔드 안전장치] AI가 간혹 문자열("3,000,000")로 반환하더라도 강제로 문자를 전처리하여 숫자로 변환
+        # 🛡️ 1차 안전장치: 기본 숫자 변환 전처리
         raw_salary = str(data.get("salary", "0"))
-        cleaned_salary = "".join(filter(str.isdigit, raw_salary)) # 숫자만 필터링해서 추출
+        cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
+        
+        # 🛡️ 2차 알고리즘 최종 병기: AI가 문장의 모순에 속아 0을 반환했을 경우, 파이썬이 정규식으로 직접 구출
+        if salary_val == 0 and 'extracted_text' in locals() and extracted_text:
+            # 텍스트 내부에서 '매월' 혹은 '매월₩' 뒤에 나오는 숫자 패턴을 강제로 추적해 추출합니다.
+            match = re.search(r'매월\s*₩?\s*([0-9,]+)', extracted_text)
+            if match:
+                salary_val = int(match.group(1).replace(',', ''))
         
         conn = sqlite3.connect("hospital_ai.db")
         cursor = conn.cursor()
@@ -263,7 +271,7 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         conn.commit()
         conn.close()
         
-        return {"status": "success", "data": data}
+        return {"status": "success", "data": {**data, "salary": salary_val}}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
