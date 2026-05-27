@@ -35,7 +35,6 @@ app.add_middleware(
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# Word 표 테두리 정밀 제어를 위한 함수
 def set_cell_border(cell, **kwargs):
     tc = cell._tc
     tcPr = tc.get_or_add_tcPr()
@@ -148,15 +147,88 @@ AI센터장"""
 
 @app.post("/upload-plan")
 async def upload_plan(project_id: str = Form(...), project_name: str = Form(...), budget: int = Form(...), plan: UploadFile = File(...)):
-    file_bytes = await plan.read()
-    full_text = extract_text(file_bytes, plan.filename)
-    plan_text_sliced = full_text[:15000] if full_text.strip() else "텍스트를 추출할 수 없거나 비어있는 파일입니다."
+    try:
+        file_bytes = await plan.read()
+        full_text = extract_text(file_bytes, plan.filename)
+        plan_text_sliced = full_text[:15000] if full_text.strip() else "텍스트를 추출할 수 없거나 비어있는 파일입니다."
+        conn = sqlite3.connect("hospital_ai.db")
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR REPLACE INTO projects (project_id, project_name, filename, plan_text, budget) VALUES (?, ?, ?, ?, ?)", (project_id, project_name, plan.filename, plan_text_sliced, budget))
+        conn.commit()
+        conn.close()
+        return {"status": "success"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@app.post("/upload-contract")
+async def upload_contract(project_id: str = Form(...), contract_file: UploadFile = File(...)):
+    file_bytes = await contract_file.read()
+    filename = contract_file.filename
+    ext = filename.lower().split('.')[-1]
+    
+    salary_instruction = (
+        "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '₩' 등의 텍스트가 포함되지 않은 순수 정수 숫자(Integer) 형식이어야 한다.\n"
+        "중요 지침: 계약서 내부의 '전체 계약 기간'과 '총 임금 액수'가 수학적으로 상충하거나 모순되더라도, 절대 총액을 기간으로 나누지 마라."
+    )
+    
+    try:
+        if ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
+            base64_image = base64.b64encode(file_bytes).decode('utf-8')
+            messages = [
+                {"role": "system", "content": f"너는 인사노무 전문가야. JSON: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
+                {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
+            ]
+        elif ext in ["pdf", "hwp", "hwpx", "docx"]:
+            extracted_text = extract_text(file_bytes, filename)
+            if not extracted_text.strip(): return {"status": "error", "message": "가독성 텍스트가 없거나 파일이 비어있습니다."}
+            messages = [
+                {"role": "system", "content": f"너는 인사노무 전문가야. 계약서 본문에서 인적사항과 임금을 추출해라. JSON: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
+                {"role": "user", "content": f"[고용계약서 본문]\n{extracted_text}"}
+            ]
+        else:
+            return {"status": "error", "message": "허용되지 않는 확장자 포맷입니다."}
+
+        response = client.chat.completions.create(model="gpt-4o", response_format={ "type": "json_object" }, messages=messages)
+        data = json.loads(response.choices[0].message.content)
+        
+        if not data.get("name"):
+            return {"status": "error", "message": "계약서 내부에서 연구원 이름을 추출하는 데 실패했습니다."}
+            
+        raw_salary = str(data.get("salary", "0"))
+        cleaned_salary = "".join(filter(str.isdigit, raw_salary))
+        salary_val = int(cleaned_salary) if cleaned_salary else 0
+        
+        if 'extracted_text' in locals() and extracted_text:
+            for line in extracted_text.split('\n'):
+                match = re.search(r'(?:매월|월\s*급여|월\s*보수)[^0-9\n]{0,30}([0-9,]{6,9})', line)
+                if match:
+                    regex_salary = int(match.group(1).replace(',', ''))
+                    if regex_salary > 0:
+                        salary_val = regex_salary
+                        break
+        
+        conn = sqlite3.connect("hospital_ai.db")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM contracts WHERE project_id = ? AND researcher_name = ?", (project_id, data.get("name")))
+        cursor.execute("""
+            INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date)
+            VALUES (?, ?, ?, ?, ?)
+        """, (project_id, data.get("name"), salary_val, data.get("start_date"), data.get("end_date")))
+        conn.commit()
+        conn.close()
+        
+        return {"status": "success", "data": {**data, "salary": salary_val}}
+    except Exception as e:
+        return {"status": "error", "message": f"서버 내부 처리 실패: {str(e)}"}
+
+@app.get("/contracts-list/{project_id}")
+async def get_contracts(project_id: str):
     conn = sqlite3.connect("hospital_ai.db")
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO projects (project_id, project_name, filename, plan_text, budget) VALUES (?, ?, ?, ?, ?)", (project_id, project_name, plan.filename, plan_text_sliced, budget))
-    conn.commit()
+    cursor.execute("SELECT researcher_name, salary, start_date, end_date FROM contracts WHERE project_id = ?", (project_id,))
+    rows = cursor.fetchall()
     conn.close()
-    return {"status": "success"}
+    return [{"name": r[0], "salary": r[1], "start_date": r[2], "end_date": r[3]} for r in rows]
 
 @app.post("/upload-receipt")
 async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile] = File(...), category: str = Form("conference")):
@@ -166,7 +238,7 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
     row = cursor.fetchone()
     if not row:
         conn.close()
-        return {"error": "사업계획서가 먼저 등록되어야 합니다."}
+        return {"error": "사업계획서가 먼저 등록되어야 합니다. 좌측 정산 타겟 창에서 1단계 자산을 먼저 업로드해 주세요."}
     plan_text = row[0]
     output_results = []
     
@@ -236,14 +308,14 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": [
-                        {"type": "text", "text": f"[사업계획서 발췌]\n{plan_text}\n\n[영수증 이미지 분석]"},
+                        {"type": "text", "text": f"[사업계획서 발췌]\n{plan_text}\n\n[영수증/계산서 이미지 분석 요청]"},
                         {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
                     ]}
                 ]
             )
             result = json.loads(response.choices[0].message.content)
             m = result.get('minutes', {})
-            memo = result.get('official_memo', {})
+            meta_memo = result.get('official_memo', {})
             
             raw_amount = str(result.get("amount", "0"))
             cleaned_amount = "".join(filter(str.isdigit, raw_amount))
@@ -256,7 +328,7 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
             result['violation_reason'] = result.get('violation_reason', '정상')
             result['system_input_guide'] = result.get('system_input_guide', '비목: 연구활동비 > 회의비')
             
-            memo_text = f"수신: {memo.get('receiver', '서울성모병원 연구부')}\n제목: {memo.get('title', '')}\n\n{memo.get('body', '')}\n\n{memo.get('sender', '')}"
+            memo_text = f"수신: {meta_memo.get('receiver', '서울성모병원 연구부')}\n제목: {meta_memo.get('title', '')}\n\n{meta_memo.get('body', '')}\n\n{meta_memo.get('sender', '')}"
             final_content = f"{m.get('content', '')}\n\n[제출용 자동 기안 공문]\n{memo_text}"
             
             cursor.execute("""
@@ -319,7 +391,7 @@ async def sync_ezbaro(project_id: str = Form(...), billing_month: str = Form(...
             contract_end = datetime.strptime(end_date_str, "%Y-%m-%d")
             billing_date = datetime.strptime(f"{billing_month}-01", "%Y-%m-%d")
             if contract_end < billing_date:
-                expired_people.append(f"{name}(만료일: {end_date_str})")
+                expired_people.append(f"{name} 연구원(만료일: {end_date_str})")
             else:
                 active_payroll_amount += salary
         except: pass
@@ -472,7 +544,6 @@ async def export_word(project_id: str):
     file_stream.seek(0)
     return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={project_id}_Meeting_Minutes.docx"})
 
-# 🛠️ 대대적 수정: 공문 양식을 HWP 내부 양식과 똑같이 정밀 모델링하여 파일 생성
 @app.get("/export-memo/{minute_id}")
 async def export_memo(minute_id: int):
     conn = sqlite3.connect("hospital_ai.db")
@@ -488,7 +559,6 @@ async def export_memo(minute_id: int):
     memo_parts = full_content.split("[제출용 자동 기안 공문]")
     memo_lines = memo_parts[1].strip().split('\n') if len(memo_parts) > 1 else []
 
-    # 파싱 안전장치
     title_text = "국책과제 지출 결의 상신"
     for line in memo_lines:
         if line.startswith("제목:"):
@@ -496,14 +566,12 @@ async def export_memo(minute_id: int):
 
     doc = Document()
     
-    # 여백 설정 (공문 표준 여백)
     for section in doc.sections:
         section.top_margin = Inches(1.0)
         section.bottom_margin = Inches(1.0)
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
 
-    # 1. 상단 발신 기관명 헤더
     p_header = doc.add_paragraph()
     p_header.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run_header = p_header.add_run("서 울 성 모 병 원  연 구 부")
@@ -513,7 +581,6 @@ async def export_memo(minute_id: int):
     run_header.font.color.rgb = RGBColor(15, 23, 42)
     p_header.paragraph_format.space_after = Pt(20)
 
-    # 2. 문서 정보 격자 메타데이터 테이블 (테두리 없음 우아한 배치)
     meta_table = doc.add_table(rows=3, cols=2)
     meta_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     meta_table.autofit = False
@@ -545,14 +612,12 @@ async def export_memo(minute_id: int):
         rr.font.name = 'Malgun Gothic'
         rr.font.size = Pt(11)
 
-    # 구분선 추가
     p_sep = doc.add_paragraph()
     p_sep.paragraph_format.space_before = Pt(6)
     p_sep.paragraph_format.space_after = Pt(18)
     run_sep = p_sep.add_run("━" * 55)
     run_sep.font.color.rgb = RGBColor(200, 200, 200)
 
-    # 3. 공문 표준 본문
     body_texts = [
         "1. 귀 부서의 무궁한 발전을 기원합니다.",
         "2. 관련근거: 서울성모병원 연구비 집행 지침 및 기준 규정",
@@ -567,9 +632,8 @@ async def export_memo(minute_id: int):
         run.font.name = 'Malgun Gothic'
         run.font.size = Pt(11)
 
-    # 4. 세부 정산 명세 테이블 (HWP 형태의 가, 나, 다 구조화 블록)
     details = [
-        ("가. 정산비목 :", "국่าย연구개발과제 연구비 (지출 증빙)"),
+        ("가. 정산비목 :", "국가연구개발과제 연구비 (지출 증빙)"),
         ("나. 가 맹 점 :", f"{store}"),
         ("다. 결제금액 :", f"금 {amount:,}원 (정액 수령 및 실집행 규격)"),
         ("라. 집행목적 :", f"{plan_task}")
@@ -600,7 +664,6 @@ async def export_memo(minute_id: int):
     doc.paragraphs[-1].runs[0].font.name = 'Malgun Gothic'
     doc.paragraphs[-1].runs[0].font.size = Pt(11)
 
-    # 5. 하단 발신인 직인 란
     p_sender = doc.add_paragraph()
     p_sender.paragraph_format.space_before = Pt(45)
     p_sender.paragraph_format.space_after = Pt(40)
@@ -611,7 +674,6 @@ async def export_memo(minute_id: int):
     run_sender.font.bold = True
     run_sender.font.color.rgb = RGBColor(30, 41, 59)
 
-    # 6. 하단 테두리 정보바 (기관 메타 하단정보바 재현)
     footer_table = doc.add_table(rows=1, cols=1)
     footer_table.alignment = WD_TABLE_ALIGNMENT.CENTER
     f_cell = footer_table.rows[0].cells[0]
