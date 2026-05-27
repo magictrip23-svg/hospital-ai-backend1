@@ -188,7 +188,57 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         "문맥 바로 뒤에 명시되어 있는 실제 매달 실지급액 숫자를 있는 그대로 찾아내어 'salary' 값으로 정확히 추출해라.\n"
         "경고: 프롬프트 지침이나 타 과제 샘플의 숫자를 절대로 참조하지 말고, 오직 업로드된 당해 파일 본문에 기재된 리얼 숫자만 파싱해라."
     )
+
+ @app.post("/setup-demo-data")
+async def setup_demo_data():
+    """✨ [시연 전용 마스터 가드레일] 파일 업로드 없이 속초 시연용 완벽한 데이터셋을 0.1초만에 DB에 강제 주입합니다."""
+    project_id = "proj_sokcho_demo"
+    project_name = "Waveform 기반 중환자실 환자의 예후 예측 모델 구축"
+    budget = 100000000
     
+    conn = sqlite3.connect("hospital_ai.db")
+    cursor = conn.cursor()
+    
+    # 1. 기존 동일 시연 과제 세션 초기화
+    cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+    cursor.execute("""
+        INSERT INTO projects (project_id, project_name, filename, plan_text, budget)
+        VALUES (?, ?, '충북대학교병원_국책과제_사업계획서.hwp', 'Waveform 기반 중환자실 환자의 예후 예측 모델 구축 관련 과업지시서 본문 데이터셋 적재완료. 직접비 내 연구활동비 및 인건비 정상 계상 확인.', ?)
+    """, (project_id, budget))
+    
+    # 2. 고용계약서 마스터 대장 데이터 인젝션
+    cursor.execute("DELETE FROM contracts WHERE project_id = ?", (project_id,))
+    # 김기훈 연구원 (계약서상의 리얼 수치인 280만 원 고정 적재)
+    cursor.execute("""
+        INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date)
+        VALUES (?, '김기훈', 2800000, '2022-06-01', '2027-12-31')
+    """, (project_id,))
+    # 홍준기 연구원 (인건비 RPA 가동 시 만료 정책 차단 팝업을 연출하기 위한 부적격 타겟 데이터)
+    cursor.execute("""
+        INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date)
+        VALUES (?, '홍준기', 3200000, '2022-01-01', '2022-12-31')
+    """, (project_id,))
+    
+    # 3. 영수증 AI 컴플라이언스 심사가 완료된 데이터 1건 강제 사전 적재
+    cursor.execute("DELETE FROM minutes WHERE project_id = ?", (project_id,))
+    cursor.execute("""
+        INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
+        VALUES (?, 'conference', '충북대학교 내 식당', '2026-05-26', 45000, 
+        '사업계획서 상의 중환자실 생체 신호 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
+        '2026-05-26 13:10', '충북대학교 내부 세미나실', '김기훈 연구원 외 2명',
+        '1. 금개년도 핵심 아젠다 중심의 연구 세미나 개요\\n  A. 발표자: 참여연구원 김기훈\\n  B. 주제: Waveform 기반 환자 예후 예측 AI 모델 구축 조율\\n2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항\\n  A. [기술적 쟁점]: 전산 원천 데이터 용량 과부하로 인한 입출력 병목 현상 보고\\n  B. [연구원간 의견 조율]: 하이브리드 인프라 분산 처리 기법 도입을 통한 최적화 솔루션 도출',
+        'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n공급가액: 40,909원 / 부가세: 4,091원')
+    """, (project_id,))
+    
+    conn.commit()
+    conn.close()
+    
+    return {
+        "status": "success",
+        "project_id": project_id,
+        "project_name": project_name,
+        "budget": budget
+    }   
     try:
         if ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
             base64_image = base64.b64encode(file_bytes).decode('utf-8')
