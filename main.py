@@ -30,74 +30,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 🔑 Render 환경 변수 연동 마스터 보안 키
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not OPENAI_API_KEY:
-    print("🚨 [ERROR] Render 환경 변수에 OPENAI_API_KEY가 없거나 읽을 수 없습니다.")
+    print("🚨 [ERROR] Render 환경 변수에 OPENAI_API_KEY가 등록되지 않았습니다.")
 else:
-    print(f"✅ [SUCCESS] OpenAI API Key가 정상 주입되었습니다: {OPENAI_API_KEY[:7]}***")
+    print(f"✅ [SUCCESS] OpenAI API Key 정상 주입: {OPENAI_API_KEY[:7]}***")
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # 👥 과제 기본 배정 연구원 명단 Pool
 RESEARCHER_POOL = [
-    "홍길동 교수(주관연구책임자)",
-    "김철수 박사(박사후연구원)",
-    "이영희 연구원(위탁연구원)",
-    "박민수 연구원(전임연구원)",
-    "최지은 연구원(연구원)",
-    "정우성 연구원(연구원)",
-    "한지민 연구원(연구원)"
+    "홍길동 교수(주관연구책임자)", "김철수 박사(박사후연구원)", "이영희 연구원(위탁연구원)",
+    "박민수 연구원(전임연구원)", "최지은 연구원(연구원)", "정우성 연구원(연구원)", "한지민 연구원(연구원)"
 ]
 
 def init_db():
     conn = sqlite3.connect("hospital_ai.db")
     cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            username TEXT PRIMARY KEY,
-            password TEXT
-        )
-    """)
+    cursor.execute("CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, password TEXT)")
     cursor.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', '1234')")
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS projects (
-            project_id TEXT PRIMARY KEY,
-            project_name TEXT,
-            filename TEXT,
-            plan_text TEXT,
-            budget INTEGER
-        )
-    """)
+    cursor.execute("CREATE TABLE IF NOT EXISTS projects (project_id TEXT PRIMARY KEY, project_name TEXT, filename TEXT, plan_text TEXT, budget INTEGER)")
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS minutes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT,
-            meeting_type TEXT,
-            store TEXT,
-            date TEXT,
-            amount INTEGER,
-            plan_task TEXT,
-            time TEXT,
-            location TEXT,
-            attendees TEXT,
-            content TEXT,
-            status TEXT,
-            violation_reason TEXT,
-            input_guide TEXT
+            id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, meeting_type TEXT, store TEXT, 
+            date TEXT, amount INTEGER, plan_task TEXT, time TEXT, location TEXT, attendees TEXT, 
+            content TEXT, status TEXT, violation_reason TEXT, input_guide TEXT
         )
     """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS contracts (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id TEXT,
-            researcher_name TEXT,
-            salary INTEGER,
-            start_date TEXT,
-            end_date TEXT
-        )
-    """)
+    cursor.execute("CREATE TABLE IF NOT EXISTS contracts (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id TEXT, researcher_name TEXT, salary INTEGER, start_date TEXT, end_date TEXT)")
     conn.commit()
     conn.close()
 
@@ -146,7 +107,7 @@ async def signup(username: str = Form(...), password: str = Form(...)):
     cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, password))
     conn.commit()
     conn.close()
-    return {"status": "success", "message": "계정 생성이 완료되었습니다. 로그인해 주세요."}
+    return {"status": "success", "message": "계정 생성이 완료되었습니다."}
 
 @app.post("/login")
 async def login(username: str = Form(...), password: str = Form(...)):
@@ -159,15 +120,52 @@ async def login(username: str = Form(...), password: str = Form(...)):
         return {"status": "error", "message": "비밀번호 또는 아이디가 일치하지 않습니다."}
     return {"status": "success"}
 
+@app.post("/setup-demo-data")
+async def setup_demo_data():
+    project_id = "proj_seoul_st_mary_demo"
+    project_name = "(예시)서울성모병원 연구과제"
+    budget = 100000000
+    conn = sqlite3.connect("hospital_ai.db")
+    cursor = conn.cursor()
+    
+    cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
+    cursor.execute("INSERT INTO projects (project_id, project_name, filename, plan_text, budget) VALUES (?, ?, '서울성모병원_국책과제_사업계획서.hwp', '서울성모병원 연구과제 데이터셋', ?)", (project_id, project_name, budget))
+    
+    cursor.execute("DELETE FROM contracts WHERE project_id = ?", (project_id,))
+    cursor.execute("INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date) VALUES (?, '김기훈', 2800000, '2022-06-01', '2027-12-31')", (project_id,))
+    cursor.execute("INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date) VALUES (?, '홍준기', 3200000, '2022-01-01', '2022-12-31')", (project_id,))
+    
+    cursor.execute("DELETE FROM minutes WHERE project_id = ?", (project_id,))
+    demo_content = """1. 금개년도 핵심 아젠다 중심의 연구 세미나 개요
+  A. 발표자: 참여연구원 김기훈
+  B. 주제: 연구과제 세부 마일스톤 달성을 위한 실무 조율
+2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항
+  A. [기술적 쟁점]: 알고리즘 최적화 및 데이터 연계 병목 현상
+  B. [연구원간 의견 조율]: 클라우드 인프라 활용 방안 논의
+
+[의생명연구원/산학협력단 제출용 자동 기안 공문]
+- 문서번호: AI센터-202X-001
+- 수신: 서울성모병원 의생명연구원장 (참조: 연구지원팀장)
+- 제목: 국책과제 연구활동비(회의비) 지출 결의 상신
+- 내용: 위 연구개발과제의 성공적 수행을 위하여 혁신법 규정에 의거, 첨부와 같이 기 집행된 연구비 법인카드 지출 내역(회의비)을 결의하오니, 검토 후 승인하여 주시기 바랍니다."""
+    
+    cursor.execute("""
+        INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
+        VALUES (?, 'conference', '서울성모병원 구내식당', '2026-05-26', 45000, 
+        '사업계획서 상의 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
+        '2026-05-26 13:10', '서울성모병원 내부 회의실', '김기훈 연구원 외 2명',
+        ?, 'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n결제수단: 연구비 법인카드\\n금액: 45,000원')
+    """, (project_id, demo_content))
+    
+    conn.commit()
+    conn.close()
+    return {"status": "success", "project_id": project_id, "project_name": project_name, "budget": budget}
+
 @app.post("/upload-plan")
 async def upload_plan(project_id: str = Form(...), project_name: str = Form(...), budget: int = Form(...), plan: UploadFile = File(...)):
-    """🔄 [롤백 완수] 타임아웃 원천 배제: AI 요약 단계를 전면 삭제하고 본문에서 15,000자만 잘라 즉시 DB에 꽂아 넣습니다."""
     file_bytes = await plan.read()
     full_text = extract_text(file_bytes, plan.filename)
-    
-    # 별도 가공 없이 상위 15,000자만 추출 바인딩 (A4 15~20페이지 분량으로 정산 검증에 충실함)
-    plan_text_sliced = full_text[:15000] if full_text.strip() else "텍스트를 추출할 수 없거나 비어있는 사업계획서 파일입니다."
-            
+    plan_text_sliced = full_text[:15000] if full_text.strip() else "텍스트를 추출할 수 없거나 비어있는 파일입니다."
     conn = sqlite3.connect("hospital_ai.db")
     cursor = conn.cursor()
     cursor.execute("INSERT OR REPLACE INTO projects (project_id, project_name, filename, plan_text, budget) VALUES (?, ?, ?, ?, ?)", (project_id, project_name, plan.filename, plan_text_sliced, budget))
@@ -188,96 +186,27 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         "문맥 바로 뒤에 명시되어 있는 실제 매달 실지급액 숫자를 있는 그대로 찾아내어 'salary' 값으로 정확히 추출해라.\n"
         "경고: 프롬프트 지침이나 타 과제 샘플의 숫자를 절대로 참조하지 말고, 오직 업로드된 당해 파일 본문에 기재된 리얼 숫자만 파싱해라."
     )
-
-@app.post("/setup-demo-data")
-async def setup_demo_data():
-    """✨ [시연 전용 마스터 가드레일] 파일 업로드 없이 속초 시연용 완벽한 데이터셋을 0.1초만에 DB에 강제 주입합니다."""
-    project_id = "proj_sokcho_demo"
-    project_name = "(예시)서울성모병원 연구과제"
-    budget = 100000000
     
-    conn = sqlite3.connect("hospital_ai.db")
-    cursor = conn.cursor()
-    
-    # 1. 기존 동일 시연 과제 세션 초기화
-    cursor.execute("DELETE FROM projects WHERE project_id = ?", (project_id,))
-    
-    # 🛠️ [버그 수정] 매개변수 튜플에 누락되었던 project_name을 정상 추가하여 바인딩 개수를 완벽히 일치시킵니다.
-    cursor.execute("""
-        INSERT INTO projects (project_id, project_name, filename, plan_text, budget)
-        VALUES (?, ?, '서울성모병원_국책과제_사업계획서.hwp', '서울성모병원 연구과제 사업계획서 본문 데이터셋 적재완료. 직접비 내 연구활동비 및 인건비 정상 계상 확인.', ?)
-    """, (project_id, project_name, budget))
-    
-    # 2. 고용계약서 마스터 대장 데이터 인젝션 [cite: 1]
-    cursor.execute("DELETE FROM contracts WHERE project_id = ?", (project_id,))
-    # 김기훈 연구원 (계약서상의 리얼 수치인 280만 원 고정 적재) [cite: 1, 12]
-    cursor.execute("""
-        INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date)
-        VALUES (?, '김기훈', 2800000, '2022-06-01', '2027-12-31')
-    """, (project_id,))
-    # 홍준기 연구원 (인건비 RPA 가동 시 만료 정책 차단 팝업을 연출하기 위한 부적격 타겟 데이터)
-    cursor.execute("""
-        INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date)
-        VALUES (?, '홍준기', 3200000, '2022-01-01', '2022-12-31')
-    """, (project_id,))
-    
-    # 3. 영수증 AI 컴플라이언스 심사가 완료된 데이터 1건 강제 사전 적재 [cite: 1]
-    cursor.execute("DELETE FROM minutes WHERE project_id = ?", (project_id,))
-    cursor.execute("""
-        INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
-        VALUES (?, 'conference', '서울성모병원 인근 식당', '2026-05-26', 45000, 
-        '사업계획서 상의 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
-        '2026-05-26 13:10', '옴니버스파크 L008호', '박승 교수 외 4명',
-        '1. 당해년도 핵심 아젠다 중심의 연구 세미나 개요\\n  A. 발표자: 참여연구원 김기훈\\n  B. 주제: AI 모델 구축 조율\\n2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항\\n  A. [기술적 쟁점]: 전산 원천 데이터 용량 과부하로 인한 입출력 병목 현상 보고\\n  B. [연구원간 의견 조율]: 하이브리드 인프라 분산 처리 기법 도입을 통한 최적화 솔루션 도출',
-        'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n공급가액: 191,919원 / 부가세: 19,191원')
-    """, (project_id,))
-    
-    conn.commit()
-    conn.close()
-    
-    return {
-        "status": "success",
-        "project_id": project_id,
-        "project_name": project_name,
-        "budget": budget
-    }   
     try:
         if ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
             base64_image = base64.b64encode(file_bytes).decode('utf-8')
             messages = [
-                {
-                    "role": "system",
-                    "content": f"너는 인사노무 고용계약서 분석 전문가야. 계약서 이미지에서 아래 정보를 파싱해 JSON으로 줘. 규격: {{\"name\": \"연구원이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"
-                },
+                {"role": "system", "content": f"너는 인사노무 고용계약서 분석 전문가야. JSON으로 추출해. 규격: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
                 {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
             ]
         elif ext in ["pdf", "hwp", "hwpx", "docx"]:
             extracted_text = extract_text(file_bytes, filename)
-            if not extracted_text.strip():
-                return {"status": "error", "message": "문서 내부에 가독 텍스트가 없거나 스캔형 레이어 이미지로만 구성되어 분석이 불가합니다."}
-            
+            if not extracted_text.strip(): return {"status": "error", "message": "가독 텍스트가 없습니다."}
             messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "너는 국책기관 노무 감사용 고용계약서 텍스트 가공 전문가야. 제공된 계약서 본문 원천 데이터에서 "
-                        "실제 계약된 참여연구원의 핵심 노무 데이터 정보 4가지를 반드시 도출하여 JSON 구조로 출력해라.\n"
-                        f"규격 사양: {{\"name\": \"연구원이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"
-                    )
-                },
-                {"role": "user", "content": f"[고용계약서 원천 텍스트 자산]\n{extracted_text}"}
+                {"role": "system", "content": f"너는 노무 감사용 텍스트 가공 전문가야. JSON으로 추출해. 규격: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
+                {"role": "user", "content": f"[고용계약서 본문]\n{extracted_text}"}
             ]
         else:
             return {"status": "error", "message": "허용되지 않는 확장자 포맷입니다."}
 
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            response_format={ "type": "json_object" },
-            messages=messages
-        )
+        response = client.chat.completions.create(model="gpt-4o", response_format={ "type": "json_object" }, messages=messages)
         data = json.loads(response.choices[0].message.content)
         
-        salary_val = 0
         raw_salary = str(data.get("salary", "0"))
         cleaned_salary = "".join(filter(str.isdigit, raw_salary))
         salary_val = int(cleaned_salary) if cleaned_salary else 0
@@ -314,28 +243,6 @@ async def get_contracts(project_id: str):
     conn.close()
     return [{"name": r[0], "salary": r[1], "start_date": r[2], "end_date": r[3]} for r in rows]
 
-@app.get("/project-stats/{project_id}")
-async def get_project_stats(project_id: str):
-    conn = sqlite3.connect("hospital_ai.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT project_name, budget FROM projects WHERE project_id = ?", (project_id,))
-    proj_row = cursor.fetchone()
-    if not proj_row:
-        conn.close()
-        return {"budget": 0, "total_spent": 0, "remaining": 0, "normal": 0, "caution": 0, "invalid": 0}
-    p_name, budget = proj_row
-    cursor.execute("SELECT amount, status FROM minutes WHERE project_id = ?", (project_id,))
-    minutes_rows = cursor.fetchall()
-    conn.close()
-    total_spent = sum(row[0] for row in minutes_rows if row[0])
-    return {
-        "project_name": p_name, "budget": budget, "total_spent": total_spent, "remaining": budget - total_spent,
-        "normal": sum(1 for r in minutes_rows if r[1] == 'normal'),
-        "caution": sum(1 for r in minutes_rows if r[1] == 'caution'),
-        "invalid": sum(1 for r in minutes_rows if r[1] == 'invalid'),
-        "total_count": len(minutes_rows)
-    }
-
 @app.post("/upload-receipt")
 async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile] = File(...), category: str = Form("conference")):
     conn = sqlite3.connect("hospital_ai.db")
@@ -346,78 +253,50 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
         conn.close()
         return {"error": "사업계획서가 먼저 등록되어야 합니다."}
     plan_text = row[0]
-    
     output_results = []
     
     for receipt in receipts:
         receipt_contents = await receipt.read()
         base64_image = base64.b64encode(receipt_contents).decode('utf-8')
         
-        # 💡 요약본이 아닌 원문 발췌본을 읽고 대조하라는 명확한 지침 가이드 적용
-        common_instruction = "너는 국가연구개발사업 컴컴플라이언스를 총괄하는 AI 수석 행정관이야. 제공된 [사업계획서 본문 발췌 내용]을 기반으로 과업 연계성을 철저히 대조해라. 실제 연구실에서 이번 달에 수행했을 법한 매우 '개연성 있고 타당하며 디테일한 연구 실무 내용'을 풍성하게 지어내어(창작하여) 작성해라. 절대 특정 예시 단어에만 갇히지 말고 범용적이고 전문적인 R&D 용어를 구사해야 한다."
+        common_instruction = "너는 서울성모병원 연구센터의 수석 행정관이야. 제공된 [사업계획서]를 기반으로 과업 연계성을 입증하고, 산학협력단(또는 의생명연구원)에 제출할 '공식 협조 공문(Draft)'을 함께 작성해라."
 
         if category == "equipment":
             system_prompt = f"""{common_instruction}
-            [비목: 연구시설장비비 전용 지침]
-            - 시설장비비 규정(종료 2달 전 제한, 3천만 원 이상 ZEUS 포털 등록 의무)을 상시 체크해라.
-            - content 구성 양식 (아래 트리 구조를 100% 준수하여 최소 8줄 이상 작성):
-              1. 금년도 연구 목표 달성을 위한 인프라 자산 취득 명세
-                 A. 계획서 목표 연산을 위해 도입이 필수적인 장비의 H/W 상세 스펙 및 도입 필요성 연계 기술
-                 B. 제조사 보증 기간 및 기술 지원 확약 범위 확인
-              2. 인프라 실물 가동 및 원내 시스템 인젝션 검수 결과
-                 A. 초기 구동 벤치마크 테스트 및 전원 공급 장치 안정성 검의
-                 B. 원내 보안 패널과의 방화벽 포트 연동 및 컴플라이언스 적격성 보고
-            
-            반드시 아래 JSON 규격으로 답변해:
+            - 시설장비비 규정을 심사해라.
+            - 반드시 JSON 내 `official_memo` 키를 생성하여, 의생명연구원(산학단)으로 보낼 장비 대금 지급 요청 공문을 작성해라.
             {{
                 "store": "장비 공급사명", "date": "자산 취득일자(YYYY-MM-DD)", "amount": 10000,
-                "plan_task": "사업계획서 상의 대규모 연산/인프라 구축 목표와 연계된 도입 타당성 기술",
-                "settlement_status": "invalid / caution / normal", "violation_reason": "판정 사유 기재",
-                "system_input_guide": "비목: 직접비 > 연구시설장비비\\n공급가액: OO원 / 부가세: OO원",
-                "minutes": {{ "time": "검수일자", "location": "원내 전산 서버실", "attendees": "책임 검수원 2명 지정", "content": "위 개조식 구성 양식에 맞춰 계획서 기반으로 있을법한 내용을 아주 풍성하게 창작한 본문" }}
+                "plan_task": "도입 타당성",
+                "settlement_status": "normal / caution / invalid", "violation_reason": "판정 사유",
+                "system_input_guide": "비목: 직접비 > 연구시설장비비",
+                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 연구시설장비비 대금 지급 및 자산 등록 협조 요청\\n내용: ...해당 업체로 대금 지급을 요청합니다.",
+                "minutes": {{ "time": "검수일자", "location": "원내 전산 서버실", "attendees": "검수원", "content": "검수조서 본문" }}
             }}"""
         elif category == "material":
             system_prompt = f"""{common_instruction}
-            [비목: 연구재료비 전용 지침]
-            - 재료비 특수 규정(과제 종료일 전 입고/납품 완료 여부)을 체크해라.
-            - content 구성 양식 (아래 트리 구조를 100% 준수하여 최소 8줄 이상 작성):
-              1. 금개년도 연구 과업용 소모품 상세 규격 및 수량 검수
-                 A. 시약, 소모품, SW 라이선스의 품목 일련번호 및 수량 대조 결과 기재
-                 B. 외관 상태 및 정품 인증, 라이선스 키 활성화 여부 확인
-              2. 물품 반입에 따른 보안 및 관리 자산화 현황
-                 A. 원내 자산관리 지침에 따른 소모품 적치실 입고 현황
-                 B. 소모품의 분할 보관 및 암호화/이중 보안 스토리지 적용 상태 기술
-            
-            반드시 아래 JSON 규격으로 답변해:
+            - 재료비 규정을 심사해라.
+            - 반드시 JSON 내 `official_memo` 키를 생성하여 물품 대금 지급 요청 공문을 작성해라.
             {{
-                "store": "물품 납품업체명", "date": "발행/입고일자(YYYY-MM-DD)", "amount": 10000,
-                "plan_task": "사업계획서 내 금년도 실험/구축 과업과의 직접적인 연계 타당성 기술",
-                "settlement_status": "invalid / caution / normal", "violation_reason": "리스크 사유 기재",
-                "system_input_guide": "비목: 직접비 > 연구재료비\\n공급가액: OO원 / 부가세: OO원",
-                "minutes": {{ "time": "물품입고일자", "location": "원내 지정 보관소", "attendees": "실무 검수자 2명 지정", "content": "위 개조식 구성 양식에 맞춰 계획서 기반으로 있을법한 내용을 아주 풍성하게 창작한 본문" }}
+                "store": "물품 납품업체명", "date": "발행/입고일자", "amount": 10000,
+                "plan_task": "연계 타당성",
+                "settlement_status": "normal / caution / invalid", "violation_reason": "판정 사유",
+                "system_input_guide": "비목: 직접비 > 연구재료비",
+                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 연구재료비 물품 대금 지급 협조 요청\\n내용: ...해당 업체로 대금 지급을 요청합니다.",
+                "minutes": {{ "time": "물품입고일자", "location": "원내 지정 보관소", "attendees": "실무 검수자", "content": "검수 본문" }}
             }}"""
-        else: # conference
+        else:
             system_prompt = f"""{common_instruction}
-            [비목: 연구활동비(회의비) 전용 지침]
-            - 회의비 규정(인당 5만원 한도, 21시 주의, 22시 위반)을 심사해라.
-            - content 구성 양식 (공백 포함 최소 10줄 이상의 풍성한 다층 구조 보고서체로 작성):
-              1. 금개년도 핵심 아젠다 중심의 연구 세미나 개요
-                 A. 발표자: 참여연구원 Pool 중 1명 다이내믹 매핑
-                 B. 주제: 핵심 기술 아젠다 도출
-              2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항
-                 A. [기술적 쟁점]: 알고리즘 병목, 데이터 정제 이슈 등 실제 연구실에서 고민했을 법한 구체적인 기술적 문제 기술
-                 B. [연구원간 의견 조율]: 쟁점 문제를 해결하기 위해 위원들 간에 오고 간 방법론적 의견 대립 및 절충안 기록
-                 C. [솔루션 도출 및 적용]: 합의를 통해 도출된 데이터 검수 및 이중 보관 솔루션의 연구 반영 계획 구체화
-              3. 향후 조치 사항 및 차기 모음 일정 확정
-                 A. 연구원별 다음 달 Action Item 강제 배정 및 차기 실무 세미나 일정 명시
-            
-            반드시 아래 JSON 규격으로 답변해:
+            - 회의비 규정을 심사해라.
+            - 회의비는 이미 법인카드로 결제된 건이므로 절대 '업체에 대금 지급을 요청한다'는 말을 쓰지 마라.
+            - 반드시 JSON 내 `official_memo` 키를 생성하여, 기 집행된 카드 내역을 보고하고 승인받는 '지출 결의 상신' 공문을 작성해라.
             {{
-                "store": "영수증 가맹점명", "date": "결제일시(YYYY-MM-DD)", "amount": 10000,
-                "plan_task": "마일스톤 달성과 어떤 직접적인 학술적/행정적 타당성을 갖는지 기술",
-                "settlement_status": "invalid / caution / normal", "violation_reason": "판정 사유 기재",
-                "system_input_guide": "비목: 연구활동비 > 회의비\\n공급가액: OO원 / 부가세: OO원",
-                "minutes": {{ "time": "회의 집행 일시", "location": "가맹점명 또는 세미나실", "attendees": "인당 5만원을 넘지 않도록 명단 Pool에서 N명 배정", "content": "위 개조식 구성 양식을 완벽히 지켜 사업계획서 기반으로 실제 치열하게 연구한 것 같은 개연성 있는 내용을 아주 디테일하고 빽빽하게 창작한 본문" }}
+                "store": "가맹점명", "date": "결제일시", "amount": 10000,
+                "plan_task": "연계성",
+                "settlement_status": "normal / caution / invalid", "violation_reason": "판정 사유",
+                "system_input_guide": "비목: 연구활동비 > 회의비",
+                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 회의비 지출 결의(법인카드) 상신\\n내용: 위 과제의 성공적 수행을 위하여 첨부와 같이 법인카드 지출 내역을 결의하오니 승인하여 주시기 바랍니다.",
+                "minutes": {{ "time": "회의 일시", "location": "장소", "attendees": "명단", "content": "회의 본문" }}
             }}"""
 
         try:
@@ -426,20 +305,26 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
                 response_format={ "type": "json_object" },
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"[사업계획서 본문 발췌]\n{plan_text}\n\n[영수증 소스 이미지 바인딩]"} # 텍스트와 영수증 다중 바인딩
+                    {"role": "user", "content": f"[사업계획서 발췌]\n{plan_text}\n\n[영수증/계산서 이미지]", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
                 ]
             )
             result = json.loads(response.choices[0].message.content)
             m = result.get('minutes', {})
+            
+            memo_text = result.get('official_memo', '')
+            final_content = f"{m.get('content', '')}\n\n[의생명연구원/산학협력단 제출용 자동 기안 공문]\n{memo_text}"
             
             cursor.execute("""
                 INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 project_id, category, result.get('store'), result.get('date'), result.get('amount'),
-                result.get('plan_task'), m.get('time'), m.get('location'), m.get('attendees'), m.get('content'),
+                result.get('plan_task'), m.get('time'), m.get('location'), m.get('attendees'), final_content,
                 result.get('settlement_status'), result.get('violation_reason'), result.get('system_input_guide')
             ))
+            
+            result['minute_id'] = cursor.lastrowid
+            result['final_content'] = final_content
             output_results.append(result)
         except Exception as e:
             output_results.append({"error": str(e)})
@@ -465,14 +350,8 @@ async def process_audio(project_id: str = Form(...), audio: UploadFile = File(..
         response = client.chat.completions.create(
             model="gpt-4o", response_format={ "type": "json_object" },
             messages=[
-                {
-                    "role": "system",
-                    "content": """너는 연구센터의 행정 매니저야. 제공된 받아쓰기 원문을 국가과제 다층 개조식 서식으로 구조화 요약해줘.
-                    1. 회의 핵심 안건 및 발표 요약
-                    2. 상세 기술 논의 및 조율 사항
-                    3. 액션 아이템 및 차기 일정 확정"""
-                },
-                {"role": "user", "content": f"[연관 사업계획서 Context]\n{plan_text}\n\n[회의 받아쓰기 본문]\n{raw_text}"}
+                {"role": "system", "content": "너는 행정 매니저야. 받아쓰기 원문을 국가과제 서식으로 구조화 요약해줘."},
+                {"role": "user", "content": f"[계획서]\n{plan_text}\n\n[받아쓰기]\n{raw_text}"}
             ]
         )
         result = json.loads(response.choices[0].message.content)
@@ -487,6 +366,28 @@ async def process_audio(project_id: str = Form(...), audio: UploadFile = File(..
         conn.close()
         return {"error": str(e)}
 
+@app.post("/execute-expense-rpa")
+async def execute_expense_rpa(minute_id: int = Form(...)):
+    conn = sqlite3.connect("hospital_ai.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT store, amount, meeting_type FROM minutes WHERE id = ?", (minute_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return {"status": "error", "message": "결재 데이터를 찾을 수 없습니다."}
+        
+    store_name, amount, meeting_type = row
+    cursor.execute("UPDATE minutes SET status = 'settled' WHERE id = ?", (minute_id,))
+    conn.commit()
+    conn.close()
+    
+    target_dept = "서울성모병원 의생명연구원(산학협력단)"
+    if meeting_type == 'conference':
+        message = f"🎉 [지출 결의 상신 완료]\n{target_dept} 재무팀으로 법인카드 지출 결의서 및 협조 공문이 전송되었습니다.\n(회의비는 기 결제된 건이므로 별도의 업체 송금은 진행되지 않습니다.)"
+    else:
+        message = f"🎉 [대금 지급 상신 완료]\n{target_dept} 재무팀으로 지출 결의서 및 협조 공문이 전송되었습니다.\n승인 완료 시, ezbaro 연동을 통해 '{store_name}'(으)로 대금({amount:,}원)이 자동 송금됩니다."
+    return {"status": "success", "message": message}
+
 @app.post("/sync-ezbaro")
 async def sync_ezbaro(project_id: str = Form(...), billing_month: str = Form(...)):
     conn = sqlite3.connect("hospital_ai.db")
@@ -496,7 +397,7 @@ async def sync_ezbaro(project_id: str = Form(...), billing_month: str = Form(...
     
     if not contracts:
         conn.close()
-        return {"status": "error", "message": "등록된 연구원 고용계약서 데이터가 존재하지 않습니다."}
+        return {"status": "error", "message": "등록된 연구원 데이터가 없습니다."}
         
     expired_people = []
     active_payroll_amount = 0
@@ -509,40 +410,52 @@ async def sync_ezbaro(project_id: str = Form(...), billing_month: str = Form(...
                 expired_people.append(f"{name}(만료일: {end_date_str})")
             else:
                 active_payroll_amount += salary
-        except:
-            pass
+        except: pass
             
     if expired_people:
         conn.close()
-        return {
-            "status": "intercepted", 
-            "message": "계약기간이 경과한 인원이 있어 자동 절차를 진행하지 않았습니다.",
-            "details": expired_people
-        }
+        return {"status": "intercepted", "message": "계약기간 경과 인원이 있어 자동 결재를 차단했습니다.", "details": expired_people}
         
     try:
         time.sleep(1.5) 
-        
         cursor.execute("""
             INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
-            VALUES (?, 'labor', '인사행정시스템', ?, ?, '고용계약서 의거 정기 연구인건비 자동 계상', ?, '원내 인사 전산망', '계약 연구원 전원', '자동 집행 완료', 'normal', '정상', 'RPA 자동 상신 완료')
+            VALUES (?, 'labor', '인사행정시스템', ?, ?, '연구인건비 자동 계상', ?, '원내 인사 전산망', '계약 연구원 전체', '자동 집행 완료', 'settled', '정상', 'RPA 상신 완료')
         """, (project_id, billing_month, active_payroll_amount, billing_month))
         conn.commit()
         conn.close()
-        
-        return {"status": "success", "message": f"🎉 [{billing_month}] 인건비 전산 자동화 완수! 총 {active_payroll_amount:,}원의 지출 승인 및 원내 결재가 자동 상신되었습니다."}
+        return {"status": "success", "message": f"🎉 [{billing_month}] 총 {active_payroll_amount:,}원의 인건비 지급 기안이 서울성모병원 의생명연구원으로 상신되었습니다."}
     except Exception as e:
         if conn: conn.close()
         return {"status": "error", "message": str(e)}
+
+@app.get("/project-stats/{project_id}")
+async def get_project_stats(project_id: str):
+    conn = sqlite3.connect("hospital_ai.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT project_name, budget FROM projects WHERE project_id = ?", (project_id,))
+    proj_row = cursor.fetchone()
+    if not proj_row:
+        conn.close()
+        return {"budget": 0, "total_spent": 0, "remaining": 0, "normal": 0, "caution": 0, "invalid": 0}
+    p_name, budget = proj_row
+    cursor.execute("SELECT amount, status FROM minutes WHERE project_id = ?", (project_id,))
+    minutes_rows = cursor.fetchall()
+    conn.close()
+    total_spent = sum(row[0] for row in minutes_rows if row[0])
+    return {
+        "project_name": p_name, "budget": budget, "total_spent": total_spent, "remaining": budget - total_spent,
+        "normal": sum(1 for r in minutes_rows if r[1] in ['normal', 'settled']),
+        "caution": sum(1 for r in minutes_rows if r[1] == 'caution'),
+        "invalid": sum(1 for r in minutes_rows if r[1] == 'invalid'),
+        "total_count": len(minutes_rows)
+    }
 
 @app.get("/export-excel")
 async def export_excel(project_id: str):
     conn = sqlite3.connect("hospital_ai.db")
     cursor = conn.cursor()
-    cursor.execute("""
-        SELECT meeting_type, store, date, amount, plan_task, status, violation_reason
-        FROM minutes WHERE project_id = ? AND meeting_type != 'real' ORDER BY id ASC
-    """, (project_id,))
+    cursor.execute("SELECT meeting_type, store, date, amount, plan_task, status, violation_reason FROM minutes WHERE project_id = ? AND meeting_type != 'real' ORDER BY id ASC", (project_id,))
     rows = cursor.fetchall()
     conn.close()
     
@@ -552,121 +465,26 @@ async def export_excel(project_id: str):
     headers = ["비목", "세부비목", "증빙일자(납품일)", "가맹점/공급처", "총지출액", "공급가액", "부가세", "적요(집행타당성 사유)", "감사결과"]
     ws.append(headers)
     
-    header_font = Font(name="Malgun Gothic", size=11, bold=True, color="FFFFFF")
-    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
-    center_align = Alignment(horizontal="center", vertical="center")
-    thin_border = Border(left=Side(style='thin', color='CBD5E1'), right=Side(style='thin', color='CBD5E1'), top=Side(style='thin', color='CBD5E1'), bottom=Side(style='thin', color='CBD5E1'))
-    
-    for col_idx, header in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col_idx)
-        cell.font = header_font; cell.fill = header_fill; cell.alignment = center_align; cell.border = thin_border
-        
-    for data_row in rows:
-        m_type, store, date_str, amount, plan_task, status, violation = data_row
+    for row in rows:
+        m_type, store, date_str, amount, plan_task, status, violation = row
         amount = amount if amount else 0
-        if m_type == "labor":
-            bi_mok, se_bi_mok = "직접비(인건비)", "내부인건비"; supply_value = amount; vat = 0
-            summary_text = f"[연구인력] 참여연구원 과제 수행 기여도 인건비 지급"
-        elif m_type == "equipment":
-            bi_mok, se_bi_mok = "직접비(연구시설장비비)", "연구장비구입비"; supply_value = int(amount / 1.1); vat = amount - supply_value
-            summary_text = f"[연구인프라] R&D 과제 전용 인프라 자산 취득"
-        elif m_type == "material":
-            bi_mok, se_bi_mok = "직접비(연구재료비)", "연구재료비"; supply_value = int(amount / 1.1); vat = amount - supply_value
-            summary_text = f"[과제연계재료] 연구 실무 전용 시약/소모품 구매"
-        else:
-            bi_mok, se_bi_mok = "직접비(연구활동비)", "회의비"; supply_value = int(amount / 1.1); vat = amount - supply_value
-            summary_text = f"[회의비] 세부 과업 추진 및 조율 실무 회의 식대"
-        status_text = "정상" if status == "normal" else f"주의/위반 ({violation})"
-        ws.append([bi_mok, se_bi_mok, date_str, store, amount, supply_value, vat, summary_text, status_text])
-        
-    for col in ws.columns:
-        max_len = max(len(str(cell.value or '')) for cell in col)
-        col_letter = col[0].column_letter
-        ws.column_dimensions[col_letter].width = max(max_len + 3, 14)
+        supply_value = int(amount / 1.1) if m_type != "labor" else amount
+        vat = amount - supply_value if m_type != "labor" else 0
+        ws.append([m_type, "세부비목", date_str, store, amount, supply_value, vat, "적요", status])
         
     file_stream = io.BytesIO()
     wb.save(file_stream)
     file_stream.seek(0)
-    return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename={project_id}_ezbaro_Bulk_Upload.xlsx"})
+    return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename={project_id}_Upload.xlsx"})
 
 @app.get("/export-word")
 async def export_word(project_id: str):
-    conn = sqlite3.connect("hospital_ai.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT project_name FROM projects WHERE project_id = ?", (project_id,))
-    proj_row = cursor.fetchone()
-    project_name = proj_row[0] if proj_row else "국책 연구 과제"
-    
-    cursor.execute("""
-        SELECT meeting_type, store, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide 
-        FROM minutes WHERE project_id = ? ORDER BY id ASC
-    """, (project_id,))
-    rows = cursor.fetchall()
-    conn.close()
-    
     doc = Document()
-    title = doc.add_paragraph()
-    title_run = title.add_run(f"국가연구개발사업 연구비 집행 종합 증빙서")
-    title_run.font.size = Pt(20)
-    title_run.bold = True
-    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    
-    p_info = doc.add_paragraph()
-    p_info.add_run(f"■ 관련 R&D 과제명: {project_name}\n").bold = True
-    p_info.add_run(f"■ 검증 지침 근거: 국가연구개발혁신법 행정 매뉴얼\n■ 제출기관: 산학협력단 연구관리팀 및 외부 전담 감사기관")
-    p_info.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    
-    for idx, row in enumerate(rows, 1):
-        m_type, store, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide = row
-        doc.add_paragraph("\n")
-        
-        table = doc.add_table(rows=7, cols=2)
-        table.style = 'Table Grid'
-        table.columns[0].width = Inches(1.5)
-        table.columns[1].width = Inches(5.0)
-        
-        if m_type == "labor":
-            table.cell(0, 0).text = "증빙 서류 분류"; table.cell(0, 1).text = f"제 {idx} 건 / [ 👥 연구인건비지급청구서 및 참여명세서 ]"
-            table.cell(1, 0).text = "집행 및 청구부서"; table.cell(1, 1).text = f"소속기관: {store}  |  지행대상 귀속월령: {time}"
-            table.cell(2, 0).text = "지급 대상 연구원"; table.cell(2, 1).text = attendees if attendees else "계약 연구원 명단 전체"
-            table.cell(3, 0).text = "연구과제 기여도\n(과업 수행 근거)"; table.cell(4, 0).text = "연구원별 참여율 및\n인건비 산출 명세"
-            table.cell(5, 0).text = "컴플라이언스\n최종 심사 의견"; table.cell(6, 0).text = "💡 국가연구개발시스템\n(RCMS/ezbaro) 매핑 규격"
-        elif m_type == "equipment":
-            table.cell(0, 0).text = "증빙 서류 분류"; table.cell(0, 1).text = f"제 {idx} 건 / [ 🖥️ 연구시설장비비 검수보고서 및 장비대장 ]"
-            table.cell(1, 0).text = "장비 공급/제조사"; table.cell(1, 1).text = f"공급업체명: {store}  |  취득(입고)일자: {time}"
-            table.cell(2, 0).text = "자산 검수 위원"; table.cell(2, 1).text = attendees if attendees else "책임 검수원 2명"
-            table.cell(3, 0).text = "연구 인프라\n구축 타당성 근거"; table.cell(4, 0).text = "도입 장비 규격 및\n수량 명세 정보"
-            table.cell(5, 0).text = "혁신법 가이드라인\n최종 심사 의견"; table.cell(6, 0).text = "💡 국가연구개발시스템\n(RCMS/ezbaro) 매핑 규격"
-        elif m_type == "material":
-            table.cell(0, 0).text = "증빙 서류 분류"; table.cell(0, 1).text = f"제 {idx} 건 / [ 🧪 연구재료비 검수조서 ]"
-            table.cell(1, 0).text = "납품 및 입고처"; table.cell(1, 1).text = f"공급업체: {store}  |  입고·발행일자: {time}"
-            table.cell(2, 0).text = "검수 및 확인자"; table.cell(2, 1).text = attendees if attendees else "실무 검수자 2명"
-            table.cell(3, 0).text = "혁신법 의거\n연구 타당성 근거"; table.cell(4, 0).text = "물품 검수 상세 명세"
-            table.cell(5, 0).text = "컴플라이언스\n최종 심사 의견"; table.cell(6, 0).text = "💡 국가연구개발시스템\n(RCMS/ezbaro) 매핑 규격"
-        else:
-            table.cell(0, 0).text = "증빙 서류 분류"; table.cell(0, 1).text = f"제 {idx} 건 / [ 🧾 연구활동비(회의비) 회의록 ]"
-            table.cell(1, 0).text = "일시 및 장소"; table.cell(1, 1).text = f"일시: {time}  |  장소: {location}"
-            table.cell(2, 0).text = "참석 위원 명단"; table.cell(2, 1).text = attendees if attendees else "참석 위원"
-            table.cell(3, 0).text = "사업계획 과업근거\n(연구비 집행 타당성)"; table.cell(4, 0).text = "세부 회의 내용"
-            table.cell(5, 0).text = "재정 집행 및\n감사 심사 결과"; table.cell(6, 0).text = "💡 국가연구개발시스템\n(RCMS/ezbaro) 매핑 규격"
-
-        table.cell(3, 1).text = plan_task if plan_task else ""
-        table.cell(4, 1).text = content if content else ""
-        
-        status_str = "✅ 정상 (정산 지침 표준 충족)"
-        if status == 'invalid': status_str = f"❌ 규정 위반 경고 [ 사유: {violation_reason} ]"
-        elif status == 'caution': status_str = f"⚠️ 정산 주의보 발령 [ 사유: {violation_reason} ]"
-        table.cell(5, 1).text = status_str; table.cell(6, 1).text = input_guide if input_guide else ""
-        
-        for r in table.rows:
-            for cell in r.cells:
-                for paragraph in cell.paragraphs:
-                    for run in paragraph.runs: run.font.name = 'Malgun Gothic'; run.font.size = Pt(10)
-                        
+    doc.add_paragraph("서울성모병원 국책과제 지출 증빙서")
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
-    return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={project_id}_Compliance_Report.docx"})
+    return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={project_id}_Report.docx"})
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
