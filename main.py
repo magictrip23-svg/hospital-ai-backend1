@@ -31,19 +31,7 @@ app.add_middleware(
 )
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-if not OPENAI_API_KEY:
-    print("🚨 [ERROR] Render 환경 변수에 OPENAI_API_KEY가 등록되지 않았습니다.")
-else:
-    print(f"✅ [SUCCESS] OpenAI API Key 정상 주입: {OPENAI_API_KEY[:7]}***")
-
 client = OpenAI(api_key=OPENAI_API_KEY)
-
-# 👥 과제 기본 배정 연구원 명단 Pool
-RESEARCHER_POOL = [
-    "홍길동 교수(주관연구책임자)", "김철수 박사(박사후연구원)", "이영희 연구원(위탁연구원)",
-    "박민수 연구원(전임연구원)", "최지은 연구원(연구원)", "정우성 연구원(연구원)", "한지민 연구원(연구원)"
-]
 
 def init_db():
     conn = sqlite3.connect("hospital_ai.db")
@@ -70,30 +58,25 @@ def extract_text(file_bytes, filename):
     try:
         if ext == "pdf":
             reader = PdfReader(io.BytesIO(file_bytes))
-            for page in reader.pages:
-                text += page.extract_text() + "\n"
+            for page in reader.pages: text += page.extract_text() + "\n"
         elif ext == "hwp":
             f = io.BytesIO(file_bytes)
             if olefile.isOleFile(f):
                 ole = olefile.OleFileIO(f)
-                if ole.exists('PrvText'):
-                    text = ole.openstream('PrvText').read().decode('utf-16le', errors='ignore')
+                if ole.exists('PrvText'): text = ole.openstream('PrvText').read().decode('utf-16le', errors='ignore')
         elif ext == "hwpx":
             with zipfile.ZipFile(io.BytesIO(file_bytes)) as z:
                 for item in z.namelist():
-                    if item.endswith('.xml'):
-                        text += z.read(item).decode('utf-8', errors='ignore')
+                    if item.endswith('.xml'): text += z.read(item).decode('utf-8', errors='ignore')
         elif ext == "docx":
             doc_obj = Document(io.BytesIO(file_bytes))
-            for p in doc_obj.paragraphs:
-                text += p.text + "\n"
+            for p in doc_obj.paragraphs: text += p.text + "\n"
             for table in doc_obj.tables:
                 for row in table.rows:
-                    for cell in row.cells:
-                        text += cell.text + " "
+                    for cell in row.cells: text += cell.text + " "
                     text += "\n"
     except Exception as e:
-        print(f"문서 추출 에러: {e}")
+        print(f"추출 에러: {e}")
     return text
 
 @app.post("/signup")
@@ -136,25 +119,29 @@ async def setup_demo_data():
     cursor.execute("INSERT INTO contracts (project_id, researcher_name, salary, start_date, end_date) VALUES (?, '홍준기', 3200000, '2022-01-01', '2022-12-31')", (project_id,))
     
     cursor.execute("DELETE FROM minutes WHERE project_id = ?", (project_id,))
-    demo_content = """1. 금개년도 핵심 아젠다 중심의 연구 세미나 개요
-  A. 발표자: 참여연구원 김기훈
-  B. 주제: 연구과제 세부 마일스톤 달성을 위한 실무 조율
-2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항
-  A. [기술적 쟁점]: 알고리즘 최적화 및 데이터 연계 병목 현상
-  B. [연구원간 의견 조율]: 클라우드 인프라 활용 방안 논의
+    
+    # 🛠️ 회의록 상세 내용 및 공문 분리
+    demo_content = """1. 임상시험 방법에 대한 논의
+   가. 5년치의 데이터를 다 쓰는 방안과 1회성의 데이터로 재발률을 예측하는 방안에 대한 비교 논의
+   나. 가장 최근 검사일 기준의 1회성 데이터로 임상시험 진행하기로 결정
+2. 임상시험용 SW 수정에 관한 논의
+   가. 초음파 팝업 전체 삭제
+   나. 재발률 퍼센트로 표기하는 UI 수정
+   다. 추이 분석 시 위험으로 오인할 수 있는 색깔 수정
+   라. 막대 그래프 및 시계열 그래프 수정
 
 [의생명연구원/산학협력단 제출용 자동 기안 공문]
 - 문서번호: AI센터-202X-001
 - 수신: 서울성모병원 의생명연구원장 (참조: 연구지원팀장)
 - 제목: 국책과제 연구활동비(회의비) 지출 결의 상신
-- 내용: 위 연구개발과제의 성공적 수행을 위하여 혁신법 규정에 의거, 첨부와 같이 기 집행된 연구비 법인카드 지출 내역(회의비)을 결의하오니, 검토 후 승인하여 주시기 바랍니다."""
+- 내용: 위 연구개발과제의 성공적 수행을 위하여 첨부와 같이 기 집행된 연구비 법인카드 지출 내역(회의비)을 결의하오니, 검토 후 승인하여 주시기 바랍니다."""
     
     cursor.execute("""
         INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
-        VALUES (?, 'conference', '서울성모병원 구내식당', '2026-05-26', 45000, 
-        '사업계획서 상의 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
-        '2026-05-26 13:10', '서울성모병원 내부 회의실', '김기훈 연구원 외 2명',
-        ?, 'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n결제수단: 연구비 법인카드\\n금액: 45,000원')
+        VALUES (?, 'conference', '청주경복궁', '2024-04-08', 283000, 
+        '임상시험계획서 검토',
+        '2024년 4월 8일 19:09 ~ 20:24', '서울성모병원 서관 9층 회의실', '내부: 김기훈, 이유진 외 4명 / 외부: 이강빈(아이도트)',
+        ?, 'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n결제수단: 연구비 법인카드\\n금액: 283,000원')
     """, (project_id, demo_content))
     
     conn.commit()
@@ -181,24 +168,21 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
     
     salary_instruction = (
         "주의: 'salary' 키의 값은 절대로 콤마(,), '원', '₩' 등의 텍스트가 포함되지 않은 순수 정수 숫자(Integer) 형식이어야 한다.\n"
-        "중요 지침: 계약서 내부의 '전체 계약 기간'과 '총 임금 액수'가 수학적으로 상충하거나 모순되더라도, "
-        "절대 총액을 기간으로 나누는 임의 계산을 수행하지 마라. 오직 본문 텍스트 내에서 '매월', '월 보수', '분할(매월 ₩X)' "
-        "문맥 바로 뒤에 명시되어 있는 실제 매달 실지급액 숫자를 있는 그대로 찾아내어 'salary' 값으로 정확히 추출해라.\n"
-        "경고: 프롬프트 지침이나 타 과제 샘플의 숫자를 절대로 참조하지 말고, 오직 업로드된 당해 파일 본문에 기재된 리얼 숫자만 파싱해라."
+        "중요 지침: 계약서 내부의 '전체 계약 기간'과 '총 임금 액수'가 수학적으로 상충하거나 모순되더라도, 절대 총액을 기간으로 나누지 마라."
     )
     
     try:
         if ext in ["jpg", "jpeg", "png", "gif", "bmp", "webp"]:
             base64_image = base64.b64encode(file_bytes).decode('utf-8')
             messages = [
-                {"role": "system", "content": f"너는 인사노무 고용계약서 분석 전문가야. JSON으로 추출해. 규격: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
+                {"role": "system", "content": f"너는 인사노무 전문가야. JSON: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
                 {"role": "user", "content": [{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
             ]
         elif ext in ["pdf", "hwp", "hwpx", "docx"]:
             extracted_text = extract_text(file_bytes, filename)
             if not extracted_text.strip(): return {"status": "error", "message": "가독 텍스트가 없습니다."}
             messages = [
-                {"role": "system", "content": f"너는 노무 감사용 텍스트 가공 전문가야. JSON으로 추출해. 규격: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
+                {"role": "system", "content": f"JSON: {{\"name\": \"이름\", \"salary\": 월임금숫자, \"start_date\": \"YYYY-MM-DD\", \"end_date\": \"YYYY-MM-DD\"}}\n{salary_instruction}"},
                 {"role": "user", "content": f"[고용계약서 본문]\n{extracted_text}"}
             ]
         else:
@@ -259,44 +243,43 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
         receipt_contents = await receipt.read()
         base64_image = base64.b64encode(receipt_contents).decode('utf-8')
         
-        common_instruction = "너는 서울성모병원 연구센터의 수석 행정관이야. 제공된 [사업계획서]를 기반으로 과업 연계성을 입증하고, 산학협력단(또는 의생명연구원)에 제출할 '공식 협조 공문(Draft)'을 함께 작성해라."
+        common_instruction = "너는 서울성모병원 연구센터의 수석 행정관이야. 제공된 [사업계획서]를 기반으로 과업 연계성을 입증해라."
 
+        # 🛠️ 회의비 전용 프롬프트: 상세 회의록 창작 + 법인카드 지출결의 공문 명확히 분리
         if category == "equipment":
             system_prompt = f"""{common_instruction}
-            - 시설장비비 규정을 심사해라.
-            - 반드시 JSON 내 `official_memo` 키를 생성하여, 의생명연구원(산학단)으로 보낼 장비 대금 지급 요청 공문을 작성해라.
+            - 시설장비비 규정을 심사하고 대금 지급 공문을 작성해라.
             {{
-                "store": "장비 공급사명", "date": "자산 취득일자(YYYY-MM-DD)", "amount": 10000,
-                "plan_task": "도입 타당성",
-                "settlement_status": "normal / caution / invalid", "violation_reason": "판정 사유",
-                "system_input_guide": "비목: 직접비 > 연구시설장비비",
-                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 연구시설장비비 대금 지급 및 자산 등록 협조 요청\\n내용: ...해당 업체로 대금 지급을 요청합니다.",
-                "minutes": {{ "time": "검수일자", "location": "원내 전산 서버실", "attendees": "검수원", "content": "검수조서 본문" }}
+                "store": "공급사명", "date": "취득일자", "amount": 10000, "plan_task": "도입 타당성",
+                "settlement_status": "normal", "violation_reason": "없음", "system_input_guide": "비목: 직접비 > 연구시설장비비",
+                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 장비 대금 지급 요청\\n내용: ...해당 업체로 대금 지급을 요청합니다.",
+                "minutes": {{ "time": "검수일자", "location": "장소", "attendees": "검수원", "content": "검수조서 본문" }}
             }}"""
         elif category == "material":
             system_prompt = f"""{common_instruction}
-            - 재료비 규정을 심사해라.
-            - 반드시 JSON 내 `official_memo` 키를 생성하여 물품 대금 지급 요청 공문을 작성해라.
+            - 재료비 규정을 심사하고 대금 지급 공문을 작성해라.
             {{
-                "store": "물품 납품업체명", "date": "발행/입고일자", "amount": 10000,
-                "plan_task": "연계 타당성",
-                "settlement_status": "normal / caution / invalid", "violation_reason": "판정 사유",
-                "system_input_guide": "비목: 직접비 > 연구재료비",
-                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 연구재료비 물품 대금 지급 협조 요청\\n내용: ...해당 업체로 대금 지급을 요청합니다.",
-                "minutes": {{ "time": "물품입고일자", "location": "원내 지정 보관소", "attendees": "실무 검수자", "content": "검수 본문" }}
+                "store": "공급사명", "date": "입고일자", "amount": 10000, "plan_task": "연계 타당성",
+                "settlement_status": "normal", "violation_reason": "없음", "system_input_guide": "비목: 직접비 > 연구재료비",
+                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 재료비 대금 지급 요청\\n내용: ...대금 지급을 요청합니다.",
+                "minutes": {{ "time": "검수일자", "location": "장소", "attendees": "검수원", "content": "검수 본문" }}
             }}"""
         else:
             system_prompt = f"""{common_instruction}
-            - 회의비 규정을 심사해라.
-            - 회의비는 이미 법인카드로 결제된 건이므로 절대 '업체에 대금 지급을 요청한다'는 말을 쓰지 마라.
-            - 반드시 JSON 내 `official_memo` 키를 생성하여, 기 집행된 카드 내역을 보고하고 승인받는 '지출 결의 상신' 공문을 작성해라.
+            - 회의비 규정을 심사해라. 회의비는 이미 '법인카드'로 결제된 건이므로 절대 '업체에 대금 지급을 요청한다'는 말을 쓰지 마라.
+            - [중요] 반드시 JSON 내 `minutes.content`에 제공된 사업계획서를 바탕으로 회의록 양식에 들어갈 '1. 임상시험 논의 가. ... 2. SW 수정 논의 가. ...' 와 같이 아주 구체적이고 전문적인 [회의록 상세 본문]을 길게 창작해라.
+            - `official_memo`에는 기 집행된 카드 내역을 승인받는 '지출 결의 상신' 공문만 짧게 작성해라.
             {{
-                "store": "가맹점명", "date": "결제일시", "amount": 10000,
-                "plan_task": "연계성",
+                "store": "가맹점명", "date": "결제일시", "amount": 10000, "plan_task": "회의 목적 (예: 임상시험계획서 검토 등)",
                 "settlement_status": "normal / caution / invalid", "violation_reason": "판정 사유",
                 "system_input_guide": "비목: 연구활동비 > 회의비",
-                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 회의비 지출 결의(법인카드) 상신\\n내용: 위 과제의 성공적 수행을 위하여 첨부와 같이 법인카드 지출 내역을 결의하오니 승인하여 주시기 바랍니다.",
-                "minutes": {{ "time": "회의 일시", "location": "장소", "attendees": "명단", "content": "회의 본문" }}
+                "official_memo": "문서번호: AI센터-202X-OOO\\n수신: 서울성모병원 의생명연구원장\\n제목: 국책과제 회의비 지출 결의(법인카드) 상신\\n내용: 첨부와 같이 법인카드 지출 내역을 결의하오니 승인하여 주시기 바랍니다.",
+                "minutes": {{ 
+                    "time": "202X년 X월 X일 19:00 ~ 20:30", 
+                    "location": "서울성모병원 회의실", 
+                    "attendees": "내부: OOO / 외부: OOO", 
+                    "content": "1. 임상시험 방법에 대한 논의\\n 가. 5년치 데이터 사용 방안...\\n2. SW 수정 논의\\n 가. 초음파 팝업 삭제..." 
+                }}
             }}"""
 
         try:
@@ -350,7 +333,7 @@ async def process_audio(project_id: str = Form(...), audio: UploadFile = File(..
         response = client.chat.completions.create(
             model="gpt-4o", response_format={ "type": "json_object" },
             messages=[
-                {"role": "system", "content": "너는 행정 매니저야. 받아쓰기 원문을 국가과제 서식으로 구조화 요약해줘."},
+                {"role": "system", "content": "너는 서울성모병원 행정 매니저야. 받아쓰기 원문을 국가과제 서식으로 구조화 요약해줘."},
                 {"role": "user", "content": f"[계획서]\n{plan_text}\n\n[받아쓰기]\n{raw_text}"}
             ]
         )
@@ -470,21 +453,98 @@ async def export_excel(project_id: str):
         amount = amount if amount else 0
         supply_value = int(amount / 1.1) if m_type != "labor" else amount
         vat = amount - supply_value if m_type != "labor" else 0
-        ws.append([m_type, "세부비목", date_str, store, amount, supply_value, vat, "적요", status])
+        ws.append([m_type, "세부비목", date_str, store, amount, supply_value, vat, plan_task, status])
         
     file_stream = io.BytesIO()
     wb.save(file_stream)
     file_stream.seek(0)
     return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f"attachment; filename={project_id}_Upload.xlsx"})
 
+# 🛠️ [신규 개발] 첨부하신 닥터앤서 양식 표 구조를 100% 동일하게 구현한 회의록 다운로드 모듈
 @app.get("/export-word")
 async def export_word(project_id: str):
+    conn = sqlite3.connect("hospital_ai.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT project_name FROM projects WHERE project_id = ?", (project_id,))
+    proj_row = cursor.fetchone()
+    project_name = proj_row[0] if proj_row else "서울성모병원 원내과제"
+    
+    cursor.execute("SELECT meeting_type, store, amount, plan_task, time, location, attendees, content FROM minutes WHERE project_id = ? ORDER BY id ASC", (project_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    
     doc = Document()
-    doc.add_paragraph("서울성모병원 국책과제 지출 증빙서")
+    
+    for idx, row in enumerate(rows):
+        m_type, store, amount, plan_task, meeting_time, location, attendees, content = row
+        
+        if m_type == "conference":
+            # 1. 문서 타이틀
+            title = doc.add_paragraph()
+            r = title.add_run("회   의   록")
+            r.font.size = Pt(18)
+            r.bold = True
+            title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            
+            # 2. 닥터앤서 양식 표 1 (과제 개요)
+            doc.add_paragraph("1. 과제 개요")
+            t1 = doc.add_table(rows=5, cols=4)
+            t1.style = 'Table Grid'
+            t1.cell(0,0).text = "사 업 명"
+            t1.cell(0,1).text = "국가연구개발사업(원내과제)"
+            t1.cell(0,2).text = "주관기관"
+            t1.cell(0,3).text = "서울성모병원"
+            t1.cell(1,0).text = "연구개발과제명"
+            t1.cell(1,1).merge(t1.cell(1,3)).text = project_name
+            t1.cell(2,0).text = "연구책임자"
+            t1.cell(2,1).text = "소속: 임상과"
+            t1.cell(2,2).text = "성명:"
+            t1.cell(2,3).text = "김기훈 (서명)"
+            t1.cell(3,0).text = "전문기관명"
+            t1.cell(3,1).text = "산학협력단"
+            t1.cell(3,2).text = "과제번호"
+            t1.cell(3,3).text = project_id
+            t1.cell(4,0).text = "전체 연구기간"
+            t1.cell(4,1).merge(t1.cell(4,3)).text = "2024. 1. 1. ~ 2027. 12. 31."
+            
+            # 3. 닥터앤서 양식 표 2 (회의 내용)
+            doc.add_paragraph("\n2. 회의 내용")
+            t2 = doc.add_table(rows=7, cols=2)
+            t2.style = 'Table Grid'
+            t2.columns[0].width = Inches(1.5)
+            t2.columns[1].width = Inches(5.0)
+            
+            t2.cell(0,0).text = "회 의 일 시"
+            t2.cell(0,1).text = meeting_time if meeting_time else ""
+            t2.cell(1,0).text = "회 의 장 소"
+            t2.cell(1,1).text = location if location else ""
+            t2.cell(2,0).text = "참 석 자"
+            t2.cell(2,1).text = attendees if attendees else ""
+            t2.cell(3,0).text = "카드 사용처"
+            t2.cell(3,1).text = store if store else ""
+            t2.cell(4,0).text = "집 행 금 액"
+            t2.cell(4,1).text = f"금{amount:,}원" if amount else ""
+            t2.cell(5,0).text = "회 의 목 적"
+            t2.cell(5,1).text = plan_task if plan_task else ""
+            t2.cell(6,0).text = "회 의 내 용"
+            
+            # 공문 내용은 제외하고 순수 '회의록 본문'만 파싱하여 표에 탑재
+            clean_content = content.split("[의생명연구원/산학협력단 제출용 자동 기안 공문]")[0].strip() if content else ""
+            t2.cell(6,1).text = clean_content
+            
+            if idx < len(rows) - 1:
+                doc.add_page_break()
+        else:
+            doc.add_paragraph(f"[{m_type.upper()}] 정산 증빙서 - {store}")
+            doc.add_paragraph(f"금액: {amount:,}원")
+            doc.add_paragraph(f"내용:\n{content}")
+            if idx < len(rows) - 1:
+                doc.add_page_break()
+                
     file_stream = io.BytesIO()
     doc.save(file_stream)
     file_stream.seek(0)
-    return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={project_id}_Report.docx"})
+    return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={project_id}_Meeting_Minutes.docx"})
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
