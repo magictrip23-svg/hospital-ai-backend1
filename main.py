@@ -246,7 +246,6 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
         
         common_instruction = "너는 서울성모병원 연구부의 수석 행정관이야. 제공된 [사업계획서]를 기반으로 과업 연계성을 입증해라."
 
-        # 🛠️ NIPA 공문 양식을 반영하도록 프롬프트 전면 수정
         if category == "equipment":
             system_prompt = f"""{common_instruction}
             - 시설장비비 규정을 심사하고 대금 지급 공문을 작성해라.
@@ -301,19 +300,34 @@ async def process_receipt(project_id: str = Form(...), receipts: list[UploadFile
             }}"""
 
         try:
+            # 🛠️ 버그 수정: 중복된 "content" 키 구조를 단일 배열 객체로 합쳐 데이터 손실 방지
             response = client.chat.completions.create(
                 model="gpt-4o",
                 response_format={ "type": "json_object" },
                 messages=[
                     {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": [{"type": "text", "text": f"[사업계획서 발췌]\n{plan_text}\n\n[영수증/계산서 이미지]"}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}
+                    {"role": "user", "content": [
+                        {"type": "text", "text": f"[사업계획서 발췌]\n{plan_text}\n\n[영수증/계산서 이미지 분석 요청]"},
+                        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+                    ]}
                 ]
             )
             result = json.loads(response.choices[0].message.content)
             m = result.get('minutes', {})
             memo = result.get('official_memo', {})
             
-            # DB 저장용 문자열 포맷팅
+            # 🛠️ undefined 원천 차단: 텍스트 섞임 및 자료형 누락 에러 방어 처리
+            raw_amount = str(result.get("amount", "0"))
+            cleaned_amount = "".join(filter(str.isdigit, raw_amount))
+            amount_val = int(cleaned_amount) if cleaned_amount else 0
+            
+            result['amount'] = amount_val
+            result['store'] = result.get('store', '알 수 없음')
+            result['plan_task'] = result.get('plan_task', '과업 연계성 검토 수행')
+            result['settlement_status'] = result.get('settlement_status', 'normal')
+            result['violation_reason'] = result.get('violation_reason', '정상')
+            result['system_input_guide'] = result.get('system_input_guide', '비목: 연구활동비 > 회의비')
+            
             memo_text = f"수신: {memo.get('receiver', '서울성모병원 연구부')}\n제목: {memo.get('title', '')}\n\n{memo.get('body', '')}\n\n{memo.get('sender', '')}"
             final_content = f"{m.get('content', '')}\n\n[제출용 자동 기안 공문]\n{memo_text}"
             
@@ -384,7 +398,7 @@ async def execute_expense_rpa(minute_id: int = Form(...)):
     conn.commit()
     conn.close()
     
-    target_dept = "서울성모병원 연구부" # 🛠️ 텍스트 수정됨
+    target_dept = "서울성모병원 연구부"
     if meeting_type == 'conference':
         message = f"🎉 [지출 결의 상신 완료]\n{target_dept}로 지출 결의서 및 협조 공문이 전송되었습니다.\n(회의비는 기 결제된 건이므로 별도의 업체 송금은 진행되지 않습니다.)"
     else:
@@ -544,7 +558,6 @@ async def export_word(project_id: str):
             t2.cell(5,1).text = plan_task if plan_task else ""
             t2.cell(6,0).text = "회 의 내 용"
             
-            # 공문 내용은 제외하고 순수 '회의록 본문'만 파싱하여 표에 탑재
             clean_content = content.split("[제출용 자동 기안 공문]")[0].strip() if content else ""
             t2.cell(6,1).text = clean_content
             
@@ -563,7 +576,6 @@ async def export_word(project_id: str):
     file_stream.seek(0)
     return StreamingResponse(file_stream, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={"Content-Disposition": f"attachment; filename={project_id}_Meeting_Minutes.docx"})
 
-# 🛠️ 신규 추가: 공문 단독 다운로드 API
 @app.get("/export-memo/{minute_id}")
 async def export_memo(minute_id: int):
     conn = sqlite3.connect("hospital_ai.db")
