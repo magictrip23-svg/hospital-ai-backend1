@@ -189,7 +189,7 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
         "경고: 프롬프트 지침이나 타 과제 샘플의 숫자를 절대로 참조하지 말고, 오직 업로드된 당해 파일 본문에 기재된 리얼 숫자만 파싱해라."
     )
 
- @app.post("/setup-demo-data")
+@app.post("/setup-demo-data")
 async def setup_demo_data():
     """✨ [시연 전용 마스터 가드레일] 파일 업로드 없이 속초 시연용 완벽한 데이터셋을 0.1초만에 DB에 강제 주입합니다."""
     project_id = "proj_sokcho_demo"
