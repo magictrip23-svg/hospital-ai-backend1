@@ -225,7 +225,7 @@ async def setup_demo_data():
         INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
         VALUES (?, 'conference', '서울성모병원 인근 식당', '2026-05-26', 45000, 
         '사업계획서 상의 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
-        '2026-05-26 13:10', '서울성모병원 옴니버스파크 L008', '김기훈 연구원 외 2명',
+        '2026-05-26 13:10', '서울성모병원 옴니버스파크 L008', '김기훈 연구원 외 4명',
         '1. 당해년도 핵심 아젠다 중심의 연구 세미나 개요\\n  A. 발표자: 참여연구원 김기훈\\n  B. 주제: AI 모델 구축 조율\\n2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항\\n  A. [기술적 쟁점]: 전산 원천 데이터 용량 과부하로 인한 입출력 병목 현상 보고\\n  B. [연구원간 의견 조율]: 하이브리드 인프라 분산 처리 기법 도입을 통한 최적화 솔루션 도출',
         'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n공급가액: 191,919원 / 부가세: 19,191원')
     """, (project_id,))
