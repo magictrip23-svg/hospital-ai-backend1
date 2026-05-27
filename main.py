@@ -193,7 +193,7 @@ async def upload_contract(project_id: str = Form(...), contract_file: UploadFile
 async def setup_demo_data():
     """✨ [시연 전용 마스터 가드레일] 파일 업로드 없이 속초 시연용 완벽한 데이터셋을 0.1초만에 DB에 강제 주입합니다."""
     project_id = "proj_sokcho_demo"
-    project_name = "Waveform 기반 중환자실 환자의 예후 예측 모델 구축"
+    project_name = "(예시)서울성모병원 연구과제"
     budget = 100000000
     
     conn = sqlite3.connect("hospital_ai.db")
@@ -205,7 +205,7 @@ async def setup_demo_data():
     # 🛠️ [버그 수정] 매개변수 튜플에 누락되었던 project_name을 정상 추가하여 바인딩 개수를 완벽히 일치시킵니다.
     cursor.execute("""
         INSERT INTO projects (project_id, project_name, filename, plan_text, budget)
-        VALUES (?, ?, '충북대학교병원_국책과제_사업계획서.hwp', 'Waveform 기반 중환자실 환자의 예후 예측 모델 구축 관련 과업지시서 본문 데이터셋 적재완료. 직접비 내 연구활동비 및 인건비 정상 계상 확인.', ?)
+        VALUES (?, ?, '서울성모병원_국책과제_사업계획서.hwp', '서울성모병원 연구과제 사업계획서 본문 데이터셋 적재완료. 직접비 내 연구활동비 및 인건비 정상 계상 확인.', ?)
     """, (project_id, project_name, budget))
     
     # 2. 고용계약서 마스터 대장 데이터 인젝션 [cite: 1]
@@ -225,11 +225,11 @@ async def setup_demo_data():
     cursor.execute("DELETE FROM minutes WHERE project_id = ?", (project_id,))
     cursor.execute("""
         INSERT INTO minutes (project_id, meeting_type, store, date, amount, plan_task, time, location, attendees, content, status, violation_reason, input_guide)
-        VALUES (?, 'conference', '충북대학교 내 식당', '2026-05-26', 45000, 
-        '사업계획서 상의 중환자실 생체 신호 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
-        '2026-05-26 13:10', '충북대학교 내부 세미나실', '김기훈 연구원 외 2명',
-        '1. 금개년도 핵심 아젠다 중심의 연구 세미나 개요\\n  A. 발표자: 참여연구원 김기훈\\n  B. 주제: Waveform 기반 환자 예후 예측 AI 모델 구축 조율\\n2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항\\n  A. [기술적 쟁점]: 전산 원천 데이터 용량 과부하로 인한 입출력 병목 현상 보고\\n  B. [연구원간 의견 조율]: 하이브리드 인프라 분산 처리 기법 도입을 통한 최적화 솔루션 도출',
-        'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n공급가액: 40,909원 / 부가세: 4,091원')
+        VALUES (?, 'conference', '서울성모병원 인근 식당', '2026-05-26', 45000, 
+        '사업계획서 상의 데이터 정제 알고리즘 병목 구간 최적화 세미나 과업 연계성 입증',
+        '2026-05-26 13:10', '옴니버스파크 L008호', '박승 교수 외 4명',
+        '1. 당해년도 핵심 아젠다 중심의 연구 세미나 개요\\n  A. 발표자: 참여연구원 김기훈\\n  B. 주제: AI 모델 구축 조율\\n2. 과업 추진에 따른 세부 기술 토의 및 쟁점 사항\\n  A. [기술적 쟁점]: 전산 원천 데이터 용량 과부하로 인한 입출력 병목 현상 보고\\n  B. [연구원간 의견 조율]: 하이브리드 인프라 분산 처리 기법 도입을 통한 최적화 솔루션 도출',
+        'normal', '정상', '비목: 직접비 > 연구활동비 > 회의비\\n공급가액: 191,919원 / 부가세: 19,191원')
     """, (project_id,))
     
     conn.commit()
